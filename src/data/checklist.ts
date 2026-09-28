@@ -49,6 +49,7 @@ export const checklist: ChecklistCategory[] = [
       { id: 'sleeping-bag', label: 'שק שינה (לטרקים ולאוטובוסי לילה)' },
       { id: 'money-belt', label: 'פאוץ׳ נסתר לכסף ולדרכון' },
       { id: 'dry-bag', label: 'שקית אטומה למים (שייט ואיים)', region: 'asia' },
+      { id: 'snorkel', label: 'מסכת שנורקל (צנוטות, קריביים וסן בלאס)', region: 'central-america' },
     ],
   },
   {
@@ -65,6 +66,7 @@ export const checklist: ChecklistCategory[] = [
       { id: 'sandals', label: 'סנדלים / כפכפים' },
       { id: 'swim', label: 'בגד ים' },
       { id: 'hat', label: 'כובע שמש + כובע צמר' },
+      { id: 'light-rain', label: 'ביגוד קל ומתייבש מהר ללחות ולגשמים טרופיים', region: 'central-america' },
       { id: 'andes-layers', label: 'שכבות חמות לאנדים – לילות קפואים באויוני ובפטגוניה', region: 'south-america' },
     ],
   },

@@ -11,7 +11,10 @@ export type Route =
   | { name: 'plan' }
   | { name: 'checklist' }
   | { name: 'tips' }
-  | { name: 'phrases' };
+  | { name: 'phrases' }
+  | { name: 'currency'; code?: string }
+  | { name: 'journal' }
+  | { name: 'more' };
 
 export function parseRoute(hash: string): Route {
   const [page, id] = hash.replace(/^#\/?/, '').split('/');
@@ -20,10 +23,14 @@ export function parseRoute(hash: string): Route {
       return id ? { name: 'region', id } : { name: 'home' };
     case 'country':
       return id ? { name: 'country', id } : { name: 'home' };
+    case 'currency':
+      return id ? { name: 'currency', code: id.toUpperCase() } : { name: 'currency' };
     case 'plan':
     case 'checklist':
     case 'tips':
     case 'phrases':
+    case 'journal':
+    case 'more':
       return { name: page };
     default:
       return { name: 'home' };

@@ -30,7 +30,8 @@ export default function ChecklistPage() {
           [
             ['all', 'הכל'],
             ['asia', '🏯 מזרח'],
-            ['south-america', '🦙 דרום אמריקה'],
+            ['south-america', '🦙 דרום אמ׳'],
+            ['central-america', '🌋 מרכז אמ׳'],
           ] as [Filter, string][]
         ).map(([value, label]) => (
           <button key={value} role="radio" aria-checked={filter === value} className={filter === value ? 'active' : undefined} onClick={() => setFilter(value)}>

@@ -9,6 +9,9 @@ import PlanPage from './pages/PlanPage';
 import ChecklistPage from './pages/ChecklistPage';
 import TipsPage from './pages/TipsPage';
 import PhrasesPage from './pages/PhrasesPage';
+import CurrencyPage from './pages/CurrencyPage';
+import JournalPage from './pages/JournalPage';
+import MorePage from './pages/MorePage';
 
 export default function App() {
   const route = useRoute();
@@ -38,6 +41,15 @@ export default function App() {
       break;
     case 'phrases':
       page = <PhrasesPage />;
+      break;
+    case 'currency':
+      page = <CurrencyPage key={route.code ?? ''} initialCode={route.code} plan={plan} />;
+      break;
+    case 'journal':
+      page = <JournalPage plan={plan} />;
+      break;
+    case 'more':
+      page = <MorePage />;
       break;
     default:
       page = <Home plan={plan} />;

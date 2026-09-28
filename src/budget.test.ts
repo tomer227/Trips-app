@@ -51,5 +51,7 @@ describe('parseRoute', () => {
     expect(parseRoute('')).toEqual({ name: 'home' });
     expect(parseRoute('#/nonsense')).toEqual({ name: 'home' });
     expect(parseRoute('#/country')).toEqual({ name: 'home' });
+    expect(parseRoute('#/currency/thb')).toEqual({ name: 'currency', code: 'THB' });
+    expect(parseRoute('#/journal')).toEqual({ name: 'journal' });
   });
 });

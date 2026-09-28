@@ -1,4 +1,4 @@
-export type RegionId = 'asia' | 'south-america';
+export type RegionId = 'asia' | 'south-america' | 'central-america';
 
 export interface Region {
   id: RegionId;
@@ -20,6 +20,8 @@ export interface Country {
   /** Backpacker daily budget in USD: [low, comfortable] */
   dailyBudget: [number, number];
   currency: string;
+  /** ISO 4217 code used by the currency converter */
+  currencyCode: string;
   visa: string;
   bestSeason: string;
   language: string;

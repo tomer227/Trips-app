@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { getCountry, getRegion } from '../data/countries';
 import { formatUsd, type TripPlan } from '../budget';
+import { convert, formatMoney, useRates } from '../currency';
 import PageHeader from '../components/PageHeader';
 
 interface Props {
@@ -12,6 +13,7 @@ interface Props {
 export default function CountryPage({ countryId, plan, onAdd }: Props) {
   const country = getCountry(countryId);
   const [days, setDays] = useState(country?.suggestedDays ?? 14);
+  const { rates } = useRates();
 
   if (!country) return <PageHeader title="המדינה לא נמצאה" back={{ href: '#/', label: 'חזרה לבית' }} />;
 
@@ -22,7 +24,18 @@ export default function CountryPage({ countryId, plan, onAdd }: Props) {
     { icon: '🛂', label: 'ויזה לישראלים', value: country.visa },
     { icon: '🌤️', label: 'מתי הכי כדאי', value: country.bestSeason },
     { icon: '💵', label: 'תקציב יומי', value: `${formatUsd(country.dailyBudget[0])} (חסכוני) – ${formatUsd(country.dailyBudget[1])} (נוח) ליום` },
-    { icon: '💱', label: 'מטבע', value: country.currency },
+    {
+      icon: '💱',
+      label: 'מטבע',
+      value: (
+        <>
+          {country.currency}
+          <a className="link fact-link" href={`#/currency/${country.currencyCode}`}>
+            {currencyHint(country.currencyCode, rates)} · לממיר ←
+          </a>
+        </>
+      ),
+    },
     { icon: '🗣️', label: 'שפה', value: country.language },
     { icon: '🔌', label: 'שקעים', value: country.plugs },
     { icon: '🚨', label: 'מספרי חירום', value: country.emergency },
@@ -97,4 +110,16 @@ export default function CountryPage({ countryId, plan, onAdd }: Props) {
       <p className="disclaimer">בדקו תנאי כניסה ואזהרות מסע עדכניים באתר משרד החוץ לפני הטיסה.</p>
     </>
   );
+}
+
+/** e.g. "100 THB ≈ ₪10" – picks a round amount that's worth a few dollars. */
+function currencyHint(code: string, rates: Record<string, number>): string {
+  if (code === 'USD') {
+    const ils = convert(1, 'USD', 'ILS', rates);
+    return ils ? `$1 ≈ ${formatMoney(ils, 'ILS')}` : '';
+  }
+  const perUsd = rates[code] ?? 1;
+  const amount = 10 ** Math.max(0, Math.round(Math.log10(perUsd * 5)));
+  const ils = convert(amount, code, 'ILS', rates);
+  return ils === null ? '' : `${amount.toLocaleString('en-US')} ${code} ≈ ${formatMoney(ils, 'ILS')}`;
 }

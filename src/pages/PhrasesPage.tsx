@@ -8,6 +8,7 @@ const voices: Record<string, string> = {
   thai: 'th-TH',
   hindi: 'hi-IN',
   vietnamese: 'vi-VN',
+  indonesian: 'id-ID',
 };
 
 function speak(text: string, lang: string) {

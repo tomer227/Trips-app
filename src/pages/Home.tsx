@@ -3,6 +3,8 @@ import { calcTrip, formatDuration, formatUsd, type TripPlan } from '../budget';
 
 const quickLinks = [
   { href: '#/plan', icon: '🧭', title: 'תכנון ותקציב', desc: 'בנו מסלול וקבלו הערכת עלות' },
+  { href: '#/journal', icon: '📔', title: 'יומן והוצאות', desc: 'זיכרונות ומעקב אחרי התקציב' },
+  { href: '#/currency', icon: '💱', title: 'ממיר מטבע', desc: 'כמה זה בשקלים?' },
   { href: '#/checklist', icon: '🎒', title: 'מה לארוז', desc: 'צ׳קליסט שנשמר אצלכם' },
   { href: '#/tips', icon: '💡', title: 'טיפים חשובים', desc: 'כסף, בריאות, ביטוח ובטיחות' },
   { href: '#/phrases', icon: '💬', title: 'משפטים שימושיים', desc: 'ספרדית, תאילנדית, הינדית ועוד' },
