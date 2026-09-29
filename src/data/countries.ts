@@ -37,6 +37,7 @@ export const countries: Country[] = [
   // ───────────── Asia ─────────────
   {
     id: 'thailand',
+    isoNumeric: '764',
     region: 'asia',
     name: 'תאילנד',
     flag: '🇹🇭',
@@ -66,6 +67,7 @@ export const countries: Country[] = [
   },
   {
     id: 'vietnam',
+    isoNumeric: '704',
     region: 'asia',
     name: 'וייטנאם',
     flag: '🇻🇳',
@@ -95,6 +97,7 @@ export const countries: Country[] = [
   },
   {
     id: 'laos',
+    isoNumeric: '418',
     region: 'asia',
     name: 'לאוס',
     flag: '🇱🇦',
@@ -124,6 +127,7 @@ export const countries: Country[] = [
   },
   {
     id: 'cambodia',
+    isoNumeric: '116',
     region: 'asia',
     name: 'קמבודיה',
     flag: '🇰🇭',
@@ -151,6 +155,7 @@ export const countries: Country[] = [
   },
   {
     id: 'india',
+    isoNumeric: '356',
     region: 'asia',
     name: 'הודו',
     flag: '🇮🇳',
@@ -183,6 +188,7 @@ export const countries: Country[] = [
   },
   {
     id: 'nepal',
+    isoNumeric: '524',
     region: 'asia',
     name: 'נפאל',
     flag: '🇳🇵',
@@ -213,6 +219,7 @@ export const countries: Country[] = [
   },
   {
     id: 'sri-lanka',
+    isoNumeric: '144',
     region: 'asia',
     name: 'סרי לנקה',
     flag: '🇱🇰',
@@ -237,6 +244,7 @@ export const countries: Country[] = [
   },
   {
     id: 'philippines',
+    isoNumeric: '608',
     region: 'asia',
     name: 'הפיליפינים',
     flag: '🇵🇭',
@@ -261,6 +269,7 @@ export const countries: Country[] = [
   },
   {
     id: 'japan',
+    isoNumeric: '392',
     region: 'asia',
     name: 'יפן',
     flag: '🇯🇵',
@@ -286,6 +295,7 @@ export const countries: Country[] = [
 
   {
     id: 'indonesia',
+    isoNumeric: '360',
     region: 'asia',
     name: 'אינדונזיה',
     flag: '🇮🇩',
@@ -316,6 +326,7 @@ export const countries: Country[] = [
   // ───────────── South America ─────────────
   {
     id: 'peru',
+    isoNumeric: '604',
     region: 'south-america',
     name: 'פרו',
     flag: '🇵🇪',
@@ -346,6 +357,7 @@ export const countries: Country[] = [
   },
   {
     id: 'bolivia',
+    isoNumeric: '068',
     region: 'south-america',
     name: 'בוליביה',
     flag: '🇧🇴',
@@ -374,6 +386,7 @@ export const countries: Country[] = [
   },
   {
     id: 'chile',
+    isoNumeric: '152',
     region: 'south-america',
     name: 'צ׳ילה',
     flag: '🇨🇱',
@@ -399,6 +412,7 @@ export const countries: Country[] = [
   },
   {
     id: 'argentina',
+    isoNumeric: '032',
     region: 'south-america',
     name: 'ארגנטינה',
     flag: '🇦🇷',
@@ -428,6 +442,7 @@ export const countries: Country[] = [
   },
   {
     id: 'brazil',
+    isoNumeric: '076',
     region: 'south-america',
     name: 'ברזיל',
     flag: '🇧🇷',
@@ -456,6 +471,7 @@ export const countries: Country[] = [
   },
   {
     id: 'colombia',
+    isoNumeric: '170',
     region: 'south-america',
     name: 'קולומביה',
     flag: '🇨🇴',
@@ -481,6 +497,7 @@ export const countries: Country[] = [
   },
   {
     id: 'ecuador',
+    isoNumeric: '218',
     region: 'south-america',
     name: 'אקוודור',
     flag: '🇪🇨',
@@ -508,6 +525,7 @@ export const countries: Country[] = [
   // ───────────── Central America & Mexico ─────────────
   {
     id: 'mexico',
+    isoNumeric: '484',
     region: 'central-america',
     name: 'מקסיקו',
     flag: '🇲🇽',
@@ -536,6 +554,7 @@ export const countries: Country[] = [
   },
   {
     id: 'guatemala',
+    isoNumeric: '320',
     region: 'central-america',
     name: 'גואטמלה',
     flag: '🇬🇹',
@@ -564,6 +583,7 @@ export const countries: Country[] = [
   },
   {
     id: 'costa-rica',
+    isoNumeric: '188',
     region: 'central-america',
     name: 'קוסטה ריקה',
     flag: '🇨🇷',
@@ -590,6 +610,7 @@ export const countries: Country[] = [
   },
   {
     id: 'panama',
+    isoNumeric: '591',
     region: 'central-america',
     name: 'פנמה',
     flag: '🇵🇦',

@@ -108,7 +108,7 @@ export function summarizeExpenses(expenses: Expense[], plan: TripPlan): ExpenseS
 }
 
 /** Keys of everything the app stores locally – used for backup / restore. */
-export const backupKeys = ['trip-plan', 'checklist', 'checklist-region', 'journal', 'phrasebook', 'converter'];
+export const backupKeys = ['trip-plan', 'checklist', 'checklist-region', 'journal', 'phrasebook', 'converter', 'community', 'map-region'];
 
 export function exportBackup(): string {
   const data: Record<string, unknown> = {};

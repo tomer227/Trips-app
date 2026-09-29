@@ -1,11 +1,11 @@
 import type { Route } from '../router';
 
 const items = [
-  { href: '#/', label: 'בית', icon: '🏠', match: ['home', 'region', 'country'] },
+  { href: '#/', label: 'בית', icon: '🏠', match: ['home', 'region', 'country', 'hot'] },
+  { href: '#/map', label: 'מפה', icon: '🗺️', match: ['map'] },
   { href: '#/plan', label: 'הטיול שלי', icon: '🧭', match: ['plan'] },
   { href: '#/journal', label: 'יומן', icon: '📔', match: ['journal'] },
-  { href: '#/checklist', label: 'צ׳קליסט', icon: '✅', match: ['checklist'] },
-  { href: '#/more', label: 'עוד', icon: '☰', match: ['more', 'tips', 'phrases', 'currency'] },
+  { href: '#/more', label: 'עוד', icon: '☰', match: ['more', 'tips', 'phrases', 'currency', 'checklist', 'faq', 'about'] },
 ];
 
 export default function BottomNav({ route }: { route: Route }) {

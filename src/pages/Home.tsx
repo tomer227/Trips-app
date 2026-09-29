@@ -1,7 +1,10 @@
 import { regions, countriesByRegion } from '../data/countries';
 import { calcTrip, formatDuration, formatUsd, type TripPlan } from '../budget';
+import { allPlaces, hotNow, shareText, useCommunity } from '../community';
+import { categoryInfo, monthNames } from '../data/places';
 
 const quickLinks = [
+  { href: '#/map', icon: '🗺️', title: 'המפה', desc: 'שביל החומוס עם ביקורות' },
   { href: '#/plan', icon: '🧭', title: 'תכנון ותקציב', desc: 'בנו מסלול וקבלו הערכת עלות' },
   { href: '#/journal', icon: '📔', title: 'יומן והוצאות', desc: 'זיכרונות ומעקב אחרי התקציב' },
   { href: '#/currency', icon: '💱', title: 'ממיר מטבע', desc: 'כמה זה בשקלים?' },
@@ -12,6 +15,12 @@ const quickLinks = [
 
 export default function Home({ plan }: { plan: TripPlan }) {
   const totals = calcTrip(plan);
+  const { community, update } = useCommunity();
+  const everything = allPlaces(community);
+  const month = new Date().getMonth() + 1;
+  const hot = hotNow(everything, month);
+  const hotPreview = [...hot.festivalsNow, ...hot.hotspots].slice(0, 4);
+  const checkInPlace = everything.find((p) => p.id === community.checkIn?.placeId);
 
   return (
     <>
@@ -20,6 +29,36 @@ export default function Home({ plan }: { plan: TripPlan }) {
         <h1>הטיול הגדול</h1>
         <p>כל מה שצריך לדעת – במקום אחד. בחרו לאן אתם טסים:</p>
       </section>
+
+      {checkInPlace && (
+        <div className="card here-banner">
+          <a href={`#/map/${checkInPlace.id}`}>
+            <strong>📍 אתם ב{checkInPlace.name}</strong>
+            <span className="muted small">לחצו לראות על המפה</span>
+          </a>
+          <div className="here-actions">
+            <button
+              className="btn btn-small"
+              onClick={() =>
+                void shareText(`📍 אני עכשיו ב${checkInPlace.name} – מי בסביבה? 🎒`, `${location.origin}${location.pathname}#/map/${checkInPlace.id}`)
+              }
+            >
+              שיתוף
+            </button>
+            <button className="btn btn-secondary btn-small" onClick={() => update((c) => ({ ...c, checkIn: null }))}>
+              יצאתי
+            </button>
+          </div>
+        </div>
+      )}
+
+      <a href="#/map" className="map-hero">
+        <span className="map-hero-pins" aria-hidden="true">
+          🚩 🎉 🍜 🏞️ 🇮🇱 🎊
+        </span>
+        <strong>🗺️ המפה של שביל החומוס</strong>
+        <span>{everything.length} מקומות, פסטיבלים ואזהרות – עם ביקורות "בעין ישראלית"</span>
+      </a>
 
       <div className="region-grid">
         {regions.map((r) => (
@@ -41,6 +80,26 @@ export default function Home({ plan }: { plan: TripPlan }) {
             {plan.stops.length} מדינות · {formatDuration(totals.days)} · בערך {formatUsd(totals.totalUsd)}
           </span>
         </a>
+      )}
+
+      {hotPreview.length > 0 && (
+        <>
+          <h2 className="section-title">🔥 חם עכשיו ({monthNames[month - 1]})</h2>
+          <ul className="hot-mini">
+            {hotPreview.map((p) => (
+              <li key={p.id}>
+                <a href={`#/map/${p.id}`} className="card hot-mini-card" style={{ '--cat': categoryInfo[p.category].color } as React.CSSProperties}>
+                  <span aria-hidden="true">{categoryInfo[p.category].emoji}</span>
+                  <strong>{p.name}</strong>
+                  <span className="muted small">{p.when ?? categoryInfo[p.category].label}</span>
+                </a>
+              </li>
+            ))}
+          </ul>
+          <a href="#/hot" className="link small">
+            עוד מה שחם החודש ←
+          </a>
+        </>
       )}
 
       <h2 className="section-title">כלים לטיול</h2>

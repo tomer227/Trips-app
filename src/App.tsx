@@ -12,6 +12,10 @@ import PhrasesPage from './pages/PhrasesPage';
 import CurrencyPage from './pages/CurrencyPage';
 import JournalPage from './pages/JournalPage';
 import MorePage from './pages/MorePage';
+import MapPage from './pages/MapPage';
+import HotPage from './pages/HotPage';
+import FaqPage from './pages/FaqPage';
+import AboutPage from './pages/AboutPage';
 
 export default function App() {
   const route = useRoute();
@@ -50,6 +54,18 @@ export default function App() {
       break;
     case 'more':
       page = <MorePage />;
+      break;
+    case 'map':
+      page = <MapPage key={route.id ?? ''} initialPlaceId={route.id} />;
+      break;
+    case 'hot':
+      page = <HotPage />;
+      break;
+    case 'faq':
+      page = <FaqPage />;
+      break;
+    case 'about':
+      page = <AboutPage />;
       break;
     default:
       page = <Home plan={plan} />;

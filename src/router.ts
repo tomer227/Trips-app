@@ -14,7 +14,11 @@ export type Route =
   | { name: 'phrases' }
   | { name: 'currency'; code?: string }
   | { name: 'journal' }
-  | { name: 'more' };
+  | { name: 'more' }
+  | { name: 'map'; id?: string }
+  | { name: 'hot' }
+  | { name: 'faq' }
+  | { name: 'about' };
 
 export function parseRoute(hash: string): Route {
   const [page, id] = hash.replace(/^#\/?/, '').split('/');
@@ -23,6 +27,8 @@ export function parseRoute(hash: string): Route {
       return id ? { name: 'region', id } : { name: 'home' };
     case 'country':
       return id ? { name: 'country', id } : { name: 'home' };
+    case 'map':
+      return id ? { name: 'map', id } : { name: 'map' };
     case 'currency':
       return id ? { name: 'currency', code: id.toUpperCase() } : { name: 'currency' };
     case 'plan':
@@ -31,6 +37,9 @@ export function parseRoute(hash: string): Route {
     case 'phrases':
     case 'journal':
     case 'more':
+    case 'hot':
+    case 'faq':
+    case 'about':
       return { name: page };
     default:
       return { name: 'home' };

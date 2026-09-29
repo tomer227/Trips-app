@@ -13,6 +13,8 @@ export interface Region {
 export interface Country {
   id: string;
   region: RegionId;
+  /** ISO 3166 numeric code – matches the world map geometry */
+  isoNumeric: string;
   name: string;
   flag: string;
   /** Short one-liner shown on cards */

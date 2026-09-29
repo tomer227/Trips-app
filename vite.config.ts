@@ -5,4 +5,8 @@ import react from '@vitejs/plugin-react';
 export default defineConfig({
   base: './',
   plugins: [react()],
+  build: {
+    // The world map geometry (~240 KB gzipped) is a lazily-loaded chunk on purpose.
+    chunkSizeWarningLimit: 800,
+  },
 });
