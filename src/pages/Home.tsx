@@ -84,7 +84,7 @@ export default function Home({ plan }: { plan: TripPlan }) {
 
       {hotPreview.length > 0 && (
         <>
-          <h2 className="section-title">🔥 חם עכשיו ({monthNames[month - 1]})</h2>
+          <h2 className="section-title">🔥 פופולרי בעונה זו ({monthNames[month - 1]})</h2>
           <ul className="hot-mini">
             {hotPreview.map((p) => (
               <li key={p.id}>
@@ -97,7 +97,7 @@ export default function Home({ plan }: { plan: TripPlan }) {
             ))}
           </ul>
           <a href="#/hot" className="link small">
-            עוד מה שחם החודש ←
+            עוד מה שפופולרי החודש ←
           </a>
         </>
       )}

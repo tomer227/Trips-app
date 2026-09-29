@@ -3,7 +3,7 @@ import { exportBackup, importBackup } from '../journal';
 import PageHeader from '../components/PageHeader';
 
 const links = [
-  { href: '#/hot', icon: '🔥', title: 'מה חם עכשיו', desc: 'פסטיבלים ונקודות מפגש החודש' },
+  { href: '#/hot', icon: '🔥', title: 'פופולרי בעונה זו', desc: 'פסטיבלים ונקודות מפגש החודש' },
   { href: '#/checklist', icon: '✅', title: 'צ׳קליסט לטיול', desc: 'מה לארוז ומה לסדר לפני הטיסה' },
   { href: '#/currency', icon: '💱', title: 'ממיר מטבע', desc: 'שערים עדכניים, עובד גם בלי אינטרנט' },
   { href: '#/tips', icon: '💡', title: 'טיפים חשובים', desc: 'כסף, בריאות, ביטוח ובטיחות' },

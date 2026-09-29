@@ -79,6 +79,10 @@ export default function CountryPage({ countryId, plan, onAdd }: Props) {
       </div>
 
       <h2 className="section-title">מה חשוב לדעת</h2>
+      <p className="unverified">
+        ⚠️ הוויזה, מספרי החירום והמחירים נכתבו לפי ידע כללי ולא אומתו מול מקור רשמי. בדקו באתר משרד החוץ ובאזהרות המסע של
+        המל״ל לפני הטיסה.
+      </p>
       <dl className="facts">
         {facts.map((f) => (
           <div key={f.label} className="fact">

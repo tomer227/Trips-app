@@ -148,7 +148,7 @@ export default function MapPage({ initialPlaceId }: Props) {
 
       {hotList.length > 0 && (
         <>
-          <h2 className="section-title">🔥 חם עכשיו באזור</h2>
+          <h2 className="section-title">🔥 פופולרי בעונה זו באזור</h2>
           <div className="chips">
             {hotList.map((p) => (
               <button key={p.id} className="chip" onClick={() => select(p)}>
@@ -157,7 +157,7 @@ export default function MapPage({ initialPlaceId }: Props) {
             ))}
           </div>
           <a className="link small" href="#/hot">
-            כל מה שחם החודש ←
+            כל מה שפופולרי החודש ←
           </a>
         </>
       )}

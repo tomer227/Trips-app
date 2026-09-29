@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import { countries } from './data/countries';
 import { isInSeason, places as curatedPlaces, type IsraeliLevel, type Place } from './data/places';
 import type { RegionId } from './data/types';
+import { readCommunity, writeCommunity } from './repositories';
 
 /**
  * Community layer: reviews, user-added places, "I'm here" check-ins and saved places.
@@ -52,36 +53,16 @@ export interface Community {
 
 export const emptyCommunity: Community = { customPlaces: [], reviews: [], checkIn: null, saved: [] };
 
-const KEY = 'community';
-
-function load(): Community {
-  try {
-    const raw = localStorage.getItem(KEY);
-    return raw ? { ...emptyCommunity, ...JSON.parse(raw) } : emptyCommunity;
-  } catch {
-    return emptyCommunity;
-  }
-}
-
-function persist(value: Community): boolean {
-  try {
-    localStorage.setItem(KEY, JSON.stringify(value));
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 /**
  * Unlike usePersistentState, updates are saved synchronously and report failure,
  * because photos can fill up device storage and silently losing a review is bad.
  */
 export function useCommunity() {
-  const [community, setCommunity] = useState<Community>(load);
+  const [community, setCommunity] = useState<Community>(readCommunity);
 
   const update = useCallback((fn: (prev: Community) => Community): boolean => {
-    const next = fn(load());
-    if (!persist(next)) return false;
+    const next = fn(readCommunity());
+    if (!writeCommunity(next)) return false;
     setCommunity(next);
     return true;
   }, []);

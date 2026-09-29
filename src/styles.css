@@ -1791,3 +1791,23 @@ textarea {
     scroll-behavior: auto !important;
   }
 }
+
+/* ─── Source labels ─── */
+.source-note {
+  margin: 0 0 10px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.source-google {
+  color: #1a73e8;
+}
+
+.unverified {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 2px dashed var(--accent);
+  font-size: 0.85rem;
+}

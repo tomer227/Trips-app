@@ -16,7 +16,7 @@ export default function HotPage() {
 
   return (
     <>
-      <PageHeader title="🔥 מה חם עכשיו" subtitle={`מה קורה ב${monthNames[month - 1]} על השביל – פסטיבלים, נקודות מפגש ומקומות בשיא העונה.`} />
+      <PageHeader title="🔥 פופולרי בעונה זו" subtitle={`מה מומלץ ב${monthNames[month - 1]} לפי לוח השנה והעונות – פסטיבלים, נקודות מפגש ומקומות בשיא העונה.`} />
 
       <div className="chips" role="tablist" aria-label="אזור">
         {([['all', '🌍 הכל'], ...regions.map((r) => [r.id, `${r.emoji} ${r.name}`])] as [Filter, string][]).map(([id, label]) => (
@@ -31,7 +31,7 @@ export default function HotPage() {
       <HotSection title="🚩 איפה כולם עכשיו – בשיא העונה" places={hot.hotspots} empty="אין נקודות בשיא עונה כרגע באזור הזה." />
 
       <p className="disclaimer">
-        "חם עכשיו" מחושב לפי לוח השנה והעונות של כל מקום. תאריכי פסטיבלים לפי לוחות שנה מקומיים משתנים משנה לשנה – בדקו תאריך מדויק לפני שמתכננים.
+        זה לא נתון בזמן אמת: הרשימה מחושבת לפי לוח השנה והעונות של כל מקום, ולא לפי כמה אנשים נמצאים שם כרגע. תאריכי פסטיבלים לפי לוחות שנה מקומיים משתנים משנה לשנה – בדקו תאריך מדויק לפני שמתכננים.
       </p>
     </>
   );

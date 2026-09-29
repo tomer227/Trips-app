@@ -1,4 +1,19 @@
-export type PlaceCategory = 'attraction' | 'food' | 'sleep' | 'party' | 'festival' | 'gathering' | 'israeli' | 'warning';
+export type PlaceCategory =
+  | 'attraction'
+  | 'food'
+  | 'cafe'
+  | 'sleep'
+  | 'party'
+  | 'festival'
+  | 'gathering'
+  | 'israeli'
+  | 'service'
+  | 'warning';
+
+/** Where a place comes from – the UI labels each source differently. */
+export type PlaceSource = 'local' | 'google';
+
+export type PriceLevel = 'free' | 'inexpensive' | 'moderate' | 'expensive' | 'very_expensive';
 
 /** How many Israelis you'll typically meet there – the "Israeli eye" */
 export type IsraeliLevel = 'high' | 'some' | 'low';
@@ -20,16 +35,37 @@ export interface Place {
   safety?: string;
   /** Added by the user on this device */
   custom?: boolean;
+
+  /** Defaults to 'local' (curated by the app team or added by the user) */
+  source?: PlaceSource;
+  /** Google-sourced fields. Only present when Google returned them – never guessed. */
+  googlePlaceId?: string;
+  googleTypes?: string[];
+  address?: string;
+  rating?: number;
+  userRatingCount?: number;
+  priceLevel?: PriceLevel;
+  /** true / false only when Google reported it; undefined = unknown */
+  openNow?: boolean;
+  openingHours?: string[];
+  phone?: string;
+  website?: string;
+  googleMapsUri?: string;
+  photoName?: string;
+  /** ISO time the external data was fetched */
+  sourceUpdatedAt?: string;
 }
 
 export const categoryInfo: Record<PlaceCategory, { label: string; emoji: string; color: string }> = {
   attraction: { label: 'אטרקציה', emoji: '🏞️', color: '#16a34a' },
   food: { label: 'אוכל', emoji: '🍜', color: '#ea580c' },
+  cafe: { label: 'קפה', emoji: '☕', color: '#a16207' },
   sleep: { label: 'לינה', emoji: '🛏️', color: '#2563eb' },
   party: { label: 'בר / מסיבה', emoji: '🎉', color: '#db2777' },
   festival: { label: 'פסטיבל', emoji: '🎊', color: '#9333ea' },
   gathering: { label: 'נקודת התארגנות', emoji: '🚩', color: '#0d9488' },
   israeli: { label: 'מוקד ישראלי', emoji: '🇮🇱', color: '#1d4ed8' },
+  service: { label: 'שירותים', emoji: '🛒', color: '#475569' },
   warning: { label: 'אזהרה', emoji: '⚠️', color: '#dc2626' },
 };
 

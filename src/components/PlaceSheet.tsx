@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { getCountry } from '../data/countries';
-import { categoryInfo, israeliLevelInfo, monthNames, monthRange, type Place } from '../data/places';
+import { categoryInfo, monthNames, monthRange, type Place } from '../data/places';
+import { hotspotFor, hotspotLabel } from '../places/hotspot';
 import { resizeImage, reviewStats, reviewTags, shareText, type Community, type Review, type ReviewTag } from '../community';
 import { newId } from '../journal';
 import { formatUsd } from '../budget';
@@ -18,6 +19,8 @@ export default function PlaceSheet({ place, community, update, onClose }: Props)
   const info = categoryInfo[place.category];
   const reviews = community.reviews.filter((r) => r.placeId === place.id).sort((a, b) => b.visited.localeCompare(a.visited));
   const stats = reviewStats(reviews);
+  const hotspot = hotspotFor(place, reviews);
+  const sourceNote = place.source === 'google' ? 'מידע חיצוני מ־Google' : place.custom ? 'נוסף על ידי משתמש' : 'נבחר על ידי צוות האפליקציה';
   const saved = community.saved.includes(place.id);
   const here = community.checkIn?.placeId === place.id;
   const link = `${location.origin}${location.pathname}#/map/${place.id}`;
@@ -27,6 +30,7 @@ export default function PlaceSheet({ place, community, update, onClose }: Props)
 
   const checkIn = () => {
     update((c) => ({ ...c, checkIn: here ? null : { placeId: place.id, at: Date.now() } }));
+    // Sharing is always the user's explicit choice; only the place name is sent, never exact coordinates.
     if (!here) void shareText(`📍 אני עכשיו ב${place.name} (${country?.name}) – מי בסביבה? 🎒`, link);
   };
 
@@ -60,10 +64,10 @@ export default function PlaceSheet({ place, community, update, onClose }: Props)
       <div className="place-meta">
         {stats.average !== null && (
           <span className="pill">
-            {'⭐'.repeat(Math.round(stats.average))} {stats.average.toFixed(1)} ({stats.count})
+            🇮🇱 {stats.average.toFixed(1)} ({stats.count} בקהילה)
           </span>
         )}
-        {place.israeli && <span className="pill">{israeliLevelInfo[place.israeli]}</span>}
+        {hotspot && <span className="pill">{hotspotLabel(hotspot)}</span>}
         {place.when && <span className="pill">📅 {place.when}</span>}
         {!place.when && place.months && place.months.length < 12 && (
           <span className="pill">🌤️ {monthRange(place.months)}</span>
@@ -75,12 +79,14 @@ export default function PlaceSheet({ place, community, update, onClose }: Props)
         <div className="safety-box">
           <strong>⚠️ שימו לב</strong>
           <p>{place.safety}</p>
+          <span className="muted small">מידע כללי מהצוות – לא אומת מול מקור רשמי. בדקו גם באזהרות המסע של משרד החוץ.</span>
         </div>
       )}
       {place.desc && <p className="place-desc">{place.desc}</p>}
+      <p className={`source-note source-${place.source ?? 'local'}`}>{sourceNote}</p>
 
       <div className="sheet-actions">
-        <button className={`btn ${here ? '' : 'btn-secondary'}`} onClick={checkIn}>
+        <button className={`btn ${here ? '' : 'btn-secondary'}`} onClick={checkIn} title="המיקום נשמר רק במכשיר שלכם">
           {here ? '📍 אתם כאן' : '📍 אני כאן'}
         </button>
         <button className={`btn btn-secondary ${saved ? 'on' : ''}`} onClick={toggleSaved}>
