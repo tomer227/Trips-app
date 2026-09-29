@@ -8,3 +8,7 @@ dist-single
 .vercel
 .netlify
 __pycache__/
+functions/index.js
+functions/node_modules
+firebase-debug.log
+.firebase

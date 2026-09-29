@@ -20,6 +20,9 @@
 
 כל הנתונים האישיים נשמרים מקומית במכשיר (localStorage).
 
+## העלאה לאוויר
+ראו [docs/FIREBASE_DEPLOY.md](docs/FIREBASE_DEPLOY.md) (Firebase Hosting + Function) ו-[docs/WEEKLY_PLACES.md](docs/WEEKLY_PLACES.md) (עדכון שבועי).
+
 ## פיתוח
 ```bash
 npm install
