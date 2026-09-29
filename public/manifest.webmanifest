@@ -1,0 +1,13 @@
+{
+  "name": "הטיול הגדול",
+  "short_name": "הטיול הגדול",
+  "description": "כל מה שצריך לדעת לטיול הגדול – מזרח ודרום אמריקה",
+  "lang": "he",
+  "dir": "rtl",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#0f766e",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

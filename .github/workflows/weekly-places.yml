@@ -1,0 +1,75 @@
+name: Weekly places update
+
+# Every Monday 06:00 UTC (09:00 Israel time in winter, 09:00 in summer +/- 1h) and on demand from the Actions tab.
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write # only used to update the small state branch (Google place IDs)
+  issues: write
+
+concurrency:
+  group: weekly-places
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Load state (place IDs seen in earlier weeks)
+        run: |
+          mkdir -p .state
+          if git ls-remote --exit-code --heads origin weekly-places-state >/dev/null 2>&1; then
+            git fetch --depth=1 origin weekly-places-state
+            git show FETCH_HEAD:seen-place-ids.json > .state/seen-place-ids.json || true
+          fi
+
+      - name: Check places and look for new ones
+        env:
+          GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
+        run: npm run weekly-places
+
+      - name: Publish the report as an issue
+        if: ${{ always() && hashFiles('.state/report.md') != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create weekly-places --color 0e8a16 --description "Weekly places report" --force
+          NEW=$(gh issue create --label weekly-places --title "דוח מקומות שבועי – $(date -u +%F)" --body-file .state/report.md)
+          echo "Created $NEW"
+          # Close the previous weekly reports so only the latest stays open.
+          gh issue list --label weekly-places --state open --json number,url --jq '.[] | "\(.number) \(.url)"' | while read -r number url; do
+            if [ "$url" != "$NEW" ]; then
+              gh issue close "$number" --comment "הוחלף בדוח חדש: $NEW"
+            fi
+          done
+
+      - name: Save state (place IDs only)
+        if: ${{ success() && hashFiles('.state/seen-place-ids.json') != '' }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          cp .state/seen-place-ids.json /tmp/seen-place-ids.json
+          if git ls-remote --exit-code --heads origin weekly-places-state >/dev/null 2>&1; then
+            git fetch --depth=1 origin weekly-places-state
+            git checkout -B weekly-places-state FETCH_HEAD
+          else
+            git checkout --orphan weekly-places-state
+            git rm -rf --quiet .
+          fi
+          cp /tmp/seen-place-ids.json seen-place-ids.json
+          git add seen-place-ids.json
+          git commit -m "Update seen place ids" || echo "Nothing changed"
+          git push origin weekly-places-state

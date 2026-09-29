@@ -1,0 +1,14 @@
+node_modules
+dist
+*.tsbuildinfo
+dist-single
+.env
+.env.*
+!.env.example
+.vercel
+.netlify
+__pycache__/
+functions/index.js
+functions/node_modules
+firebase-debug.log
+.firebase
