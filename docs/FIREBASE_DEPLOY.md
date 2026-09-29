@@ -9,7 +9,13 @@ Firebase Hosting מגיש את האפליקציה, ו־Cloud Function אחת (`p
 2. **תוכנית Blaze** (תשלום לפי שימוש, עם מכסה חינמית). Cloud Functions ושימוש בסודות דורשים אותה. הוסיפו התראת תקציב ב־Billing.
 3. **מפתח Places חדש.** המפתח הישן נחשף בצ'אט, לכן צרו חדש (או Regenerate) והגבילו אותו ל־Places API (New).
 
-## פקודות (במחשב שלכם, בתיקיית הפרויקט)
+## הדרך המהירה (Windows)
+```
+powershell -ExecutionPolicy Bypass -File scripts\deploy.ps1
+```
+הסקריפט מבצע את כל השלבים למטה, ושואל אתכם רק על מה שרק אתם יכולים לתת: כניסה ל־Firebase, בחירת פרויקט, מפתח Google (חדש!) וכתובת ומפתח `anon` של Supabase. נכתב אך לא נבדק על Windows אמיתי.
+
+## פקודות ידניות (במחשב שלכם, בתיקיית הפרויקט)
 ```bash
 npm install
 npx firebase-tools login
