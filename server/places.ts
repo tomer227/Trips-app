@@ -69,6 +69,7 @@ export const DETAILS_FIELD_MASK = [
   'websiteUri',
   'googleMapsUri',
   'photos.name',
+  'photos.authorAttributions',
 ].join(',');
 
 const SEARCH_TTL = 30 * 60_000;

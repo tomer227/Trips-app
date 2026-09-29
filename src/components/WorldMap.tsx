@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { geoContains, geoMercator, geoPath } from 'd3-geo';
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { geoContains, geoDistance, geoMercator, geoPath } from 'd3-geo';
 import { pointer, select } from 'd3-selection';
 import 'd3-transition';
 import { zoom as d3zoom, zoomIdentity, type ZoomBehavior, type ZoomTransform } from 'd3-zoom';
@@ -37,7 +37,7 @@ function useWorldGeometry(): CountryFeature[] | null {
 const isoToCountry = new Map(countries.map((c) => [c.isoNumeric, c]));
 
 /** Pins closer than this (in screen units of the 400×480 view) merge into a cluster bubble. */
-const CLUSTER_RADIUS = 20;
+const CLUSTER_RADIUS = 14;
 
 interface Cluster {
   x: number;
@@ -72,9 +72,27 @@ interface Props {
   onSelect: (place: Place) => void;
   addMode: boolean;
   onAddAt: (lat: number, lng: number, countryId: string | null) => void;
+  /** Fly to a point (e.g. a search result or "near me"). A new `nonce` triggers a new flight. */
+  focus?: { lat: number; lng: number; k: number; nonce: number } | null;
 }
 
-export default function WorldMap({ region, places, selectedId, checkInId, onSelect, addMode, onAddAt }: Props) {
+/** What the user currently sees – the basis for "search this area". */
+export interface MapViewport {
+  lat: number;
+  lng: number;
+  /** Distance from the centre to the nearest screen edge, in metres */
+  radiusM: number;
+  k: number;
+}
+
+export interface WorldMapHandle {
+  getViewport(): MapViewport | null;
+}
+
+// Deep enough to see one neighbourhood: at k = 1200 the view spans roughly 2.5 km.
+export const MAX_ZOOM = 1200;
+
+const WorldMap = forwardRef<WorldMapHandle, Props>(function WorldMap({ region, places, selectedId, checkInId, onSelect, addMode, onAddAt, focus }, ref) {
   const features = useWorldGeometry();
   const svgRef = useRef<SVGSVGElement>(null);
   const gRef = useRef<SVGGElement>(null);
@@ -112,7 +130,7 @@ export default function WorldMap({ region, places, selectedId, checkInId, onSele
     const svg = svgRef.current;
     if (!svg) return;
     const behavior = d3zoom<SVGSVGElement, unknown>()
-      .scaleExtent([1, 14])
+      .scaleExtent([1, MAX_ZOOM])
       .translateExtent([[-W, -H], [2 * W, 2 * H]])
       .on('zoom', (e) => setTransform(e.transform));
     zoomRef.current = behavior;
@@ -140,6 +158,36 @@ export default function WorldMap({ region, places, selectedId, checkInId, onSele
     select(svg).transition().duration(500).call(zoomRef.current.transform, target);
     // Only react to selection changes, not to every zoom step.
   }, [selectedId, projection]);
+
+  // Explicit fly-to requests from outside (search results, "near me").
+  useEffect(() => {
+    if (!focus || !svgRef.current || !zoomRef.current) return;
+    const xy = projection([focus.lng, focus.lat]);
+    if (!xy) return;
+    const target = zoomIdentity.translate(W / 2 - xy[0] * focus.k, H * 0.4 - xy[1] * focus.k).scale(focus.k);
+    select(svgRef.current).transition().duration(600).call(zoomRef.current.transform, target);
+    // Only a new nonce should start a flight.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus?.nonce, projection]);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      getViewport() {
+        // Screen centre → map coordinates → longitude/latitude.
+        const [cx, cy] = transform.invert([W / 2, H / 2]);
+        const center = projection.invert?.([cx, cy]);
+        if (!center) return null;
+        const edgeX = projection.invert?.([cx + W / 2 / transform.k, cy]);
+        const edgeY = projection.invert?.([cx, cy + H / 2 / transform.k]);
+        if (!edgeX || !edgeY) return null;
+        const R = 6_371_000;
+        const radiusM = Math.min(geoDistance(center, edgeX), geoDistance(center, edgeY)) * R;
+        return { lng: center[0], lat: center[1], radiusM, k: transform.k };
+      },
+    }),
+    [transform, projection],
+  );
 
   const zoomBy = (factor: number) => {
     if (svgRef.current && zoomRef.current) select(svgRef.current).transition().duration(250).call(zoomRef.current.scaleBy, factor);
@@ -174,7 +222,7 @@ export default function WorldMap({ region, places, selectedId, checkInId, onSele
 
   const zoomInto = (c: Cluster) => {
     if (!svgRef.current || !zoomRef.current) return;
-    const nk = Math.min(14, k * 2.5);
+    const nk = Math.min(MAX_ZOOM, k * 2.5);
     const target = zoomIdentity.translate(W / 2 - c.x * nk, H / 2 - c.y * nk).scale(nk);
     select(svgRef.current).transition().duration(400).call(zoomRef.current.transform, target);
   };
@@ -245,7 +293,7 @@ export default function WorldMap({ region, places, selectedId, checkInId, onSele
               >
                 {here && <circle r={r + 7} className="pin-here" />}
                 <circle r={r} cy={2} className="pin-shadow" />
-                <circle r={r} fill={info.color} className="pin-body" />
+                <circle r={r} fill={info.color} className={`pin-body ${p.source === 'google' ? 'pin-google' : ''}`} />
                 <text className="pin-emoji" fontSize={selected ? 15 : 11} dy="0.35em">
                   {info.emoji}
                 </text>
@@ -271,4 +319,6 @@ export default function WorldMap({ region, places, selectedId, checkInId, onSele
       </div>
     </div>
   );
-}
+});
+
+export default WorldMap;

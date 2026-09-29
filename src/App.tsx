@@ -56,7 +56,7 @@ export default function App() {
       page = <MorePage />;
       break;
     case 'map':
-      page = <MapPage key={route.id ?? ''} initialPlaceId={route.id} />;
+      page = <MapPage key={route.id ?? ''} initialPlaceId={route.id} plan={plan} />;
       break;
     case 'hot':
       page = <HotPage />;

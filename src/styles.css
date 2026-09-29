@@ -1168,7 +1168,7 @@ textarea {
 .world-map {
   display: block;
   width: 100%;
-  height: min(68vh, 120vw);
+  height: min(60vh, 112vw);
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
@@ -1790,6 +1790,168 @@ textarea {
     transition: none !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* ─── Places search panel ─── */
+.places-panel {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.places-source {
+  grid-template-columns: repeat(3, 1fr);
+  margin: 0;
+}
+
+.place-search {
+  position: relative;
+}
+
+.place-search input {
+  width: 100%;
+  min-height: 48px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  border: 2px solid var(--border);
+  background: var(--surface);
+}
+
+.suggestions {
+  position: absolute;
+  inset-inline: 0;
+  top: calc(100% + 4px);
+  z-index: 15;
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  max-height: 260px;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
+}
+
+.suggestions button {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  text-align: start;
+}
+
+.suggestions button:hover,
+.suggestions button:focus-visible {
+  background: var(--bg);
+}
+
+.google-cats {
+  margin-bottom: 0;
+}
+
+.places-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.btn.on {
+  box-shadow: 0 4px 0 var(--primary);
+  border: 2px solid var(--primary);
+}
+
+.filter-box {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.filter-box label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.filter-box select {
+  width: 100%;
+  min-width: 0;
+}
+
+.filter-box .full,
+.full {
+  grid-column: 1 / -1;
+}
+
+.status-line {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--primary-soft);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.status-error,
+.status-offline,
+.status-rate_limited,
+.status-unavailable {
+  background: color-mix(in srgb, var(--accent) 22%, var(--surface));
+}
+
+.pin-google {
+  stroke-dasharray: 5 3;
+}
+
+.pill-google {
+  background: color-mix(in srgb, #1a73e8 14%, var(--surface));
+  color: #1a73e8;
+}
+
+@media (prefers-color-scheme: dark) {
+  .pill-google,
+  .source-google {
+    color: #8ab4f8;
+  }
+}
+
+.google-row {
+  border-style: dashed;
+}
+
+.google-info {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.google-info p,
+.google-info figure {
+  margin: 0;
+}
+
+.google-info figcaption {
+  margin-top: 2px;
+}
+
+.hours {
+  margin: 6px 0 0;
+  padding-inline-start: 18px;
+  font-size: 0.9rem;
+}
+
+.saved-head {
+  margin-top: 16px;
+  border: 2px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
 }
 
 /* ─── Source labels ─── */

@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { getCountry } from '../data/countries';
 import { categoryInfo, monthNames, monthRange, type Place } from '../data/places';
 import { hotspotFor, hotspotLabel } from '../places/hotspot';
+import { googleMapsUrl, priceSymbols } from '../places/mapping';
+import { useGooglePhoto } from '../places/usePlaces';
 import { resizeImage, reviewStats, reviewTags, shareText, type Community, type Review, type ReviewTag } from '../community';
 import { newId } from '../journal';
 import { formatUsd } from '../budget';
@@ -31,7 +33,7 @@ export default function PlaceSheet({ place, community, update, onClose }: Props)
   const checkIn = () => {
     update((c) => ({ ...c, checkIn: here ? null : { placeId: place.id, at: Date.now() } }));
     // Sharing is always the user's explicit choice; only the place name is sent, never exact coordinates.
-    if (!here) void shareText(`📍 אני עכשיו ב${place.name} (${country?.name}) – מי בסביבה? 🎒`, link);
+    if (!here) void shareText(`📍 אני עכשיו ב${place.name}${country ? ` (${country.name})` : ''} – מי בסביבה? 🎒`, link);
   };
 
   const removeCustom = () => {
@@ -57,16 +59,25 @@ export default function PlaceSheet({ place, community, update, onClose }: Props)
         {info.emoji} {info.label}
       </span>
       <h2 className="sheet-title">{place.name}</h2>
-      <a className="muted small" href={`#/country/${place.countryId}`}>
-        {country?.flag} {country?.name} · למדריך המדינה ←
-      </a>
+      {country && (
+        <a className="muted small" href={`#/country/${place.countryId}`}>
+          {country.flag} {country.name} · למדריך המדינה ←
+        </a>
+      )}
 
       <div className="place-meta">
-        {stats.average !== null && (
-          <span className="pill">
-            🇮🇱 {stats.average.toFixed(1)} ({stats.count} בקהילה)
+        {place.rating !== undefined && (
+          <span className="pill pill-google">
+            ⭐ {place.rating.toFixed(1)} (Google{place.userRatingCount ? ` · ${place.userRatingCount.toLocaleString('en-US')}` : ''})
           </span>
         )}
+        {stats.average !== null && (
+          <span className="pill">
+            🇮🇱 {stats.average.toFixed(1)} (קהילת "הטיול הגדול" · {stats.count})
+          </span>
+        )}
+        {place.priceLevel && <span className="pill pill-google">{priceSymbols(place.priceLevel)}</span>}
+        {place.openNow !== undefined && <span className="pill pill-google">{place.openNow ? '🟢 פתוח עכשיו' : '🔴 סגור עכשיו'}</span>}
         {hotspot && <span className="pill">{hotspotLabel(hotspot)}</span>}
         {place.when && <span className="pill">📅 {place.when}</span>}
         {!place.when && place.months && place.months.length < 12 && (
@@ -84,6 +95,7 @@ export default function PlaceSheet({ place, community, update, onClose }: Props)
       )}
       {place.desc && <p className="place-desc">{place.desc}</p>}
       <p className={`source-note source-${place.source ?? 'local'}`}>{sourceNote}</p>
+      {place.source === 'google' && <GoogleInfo place={place} />}
 
       <div className="sheet-actions">
         <button className={`btn ${here ? '' : 'btn-secondary'}`} onClick={checkIn} title="המיקום נשמר רק במכשיר שלכם">
@@ -121,7 +133,7 @@ export default function PlaceSheet({ place, community, update, onClose }: Props)
         />
       ) : (
         <button className="btn btn-block" onClick={() => setWriting(true)}>
-          ✍️ כתבו ביקורת
+          ✍️ כתבו חוויה ישראלית על המקום
         </button>
       )}
 
@@ -163,6 +175,55 @@ export default function PlaceSheet({ place, community, update, onClose }: Props)
           מחיקת המקום
         </button>
       )}
+    </div>
+  );
+}
+
+/** Everything that comes from Google, kept together and clearly labelled (with the attribution Google requires). */
+function GoogleInfo({ place }: { place: Place }) {
+  const photo = useGooglePhoto(place.photoName);
+  const mapsUrl = googleMapsUrl(place);
+  return (
+    <div className="google-info">
+      {photo && (
+        <figure>
+          <img src={photo} alt="" loading="lazy" className="review-photo" />
+          {place.photoAttribution && <figcaption className="muted small">📷 {place.photoAttribution} · Google</figcaption>}
+        </figure>
+      )}
+      {place.address && <p>📍 {place.address}</p>}
+      {place.openingHours && place.openingHours.length > 0 && (
+        <details>
+          <summary>🕒 שעות פתיחה</summary>
+          <ul className="hours">
+            {place.openingHours.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        </details>
+      )}
+      {place.phone && (
+        <p>
+          📞 <a className="link" href={`tel:${place.phone.replace(/[^\d+]/g, '')}`} dir="ltr">{place.phone}</a>
+        </p>
+      )}
+      {place.website && (
+        <p>
+          🌐{' '}
+          <a className="link" href={place.website} target="_blank" rel="noopener noreferrer">
+            אתר המקום
+          </a>
+        </p>
+      )}
+      {mapsUrl && (
+        <a className="btn btn-block" href={mapsUrl} target="_blank" rel="noopener noreferrer">
+          🧭 נווט ב־Google Maps
+        </a>
+      )}
+      <p className="muted small">
+        Powered by Google
+        {place.sourceUpdatedAt && ` · נטען ${new Date(place.sourceUpdatedAt).toLocaleString('he-IL', { dateStyle: 'short', timeStyle: 'short' })}`}
+      </p>
     </div>
   );
 }

@@ -52,6 +52,8 @@ export interface Place {
   website?: string;
   googleMapsUri?: string;
   photoName?: string;
+  /** Required by Google whenever the photo is shown */
+  photoAttribution?: string;
   /** ISO time the external data was fetched */
   sourceUpdatedAt?: string;
 }
