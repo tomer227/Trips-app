@@ -7,6 +7,7 @@ import { useGooglePhoto } from '../places/usePlaces';
 import { resizeImage, reviewStats, reviewTags, shareText, type Community, type Review, type ReviewTag } from '../community';
 import { newId } from '../journal';
 import { formatUsd } from '../budget';
+import { useCloudReviews } from '../cloud/useCloudReviews';
 
 interface Props {
   place: Place;
@@ -17,9 +18,13 @@ interface Props {
 
 export default function PlaceSheet({ place, community, update, onClose }: Props) {
   const [writing, setWriting] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const cloud = useCloudReviews(place.id);
   const country = getCountry(place.countryId);
   const info = categoryInfo[place.category];
-  const reviews = community.reviews.filter((r) => r.placeId === place.id).sort((a, b) => b.visited.localeCompare(a.visited));
+  // Shared reviews (from the community account system) first-class, plus the ones kept on this device.
+  const localReviews = community.reviews.filter((r) => r.placeId === place.id);
+  const reviews = [...cloud.reviews, ...localReviews].sort((a, b) => b.visited.localeCompare(a.visited));
   const stats = reviewStats(reviews);
   const hotspot = hotspotFor(place, reviews);
   const sourceNote = place.source === 'google' ? 'מידע חיצוני מ־Google' : place.custom ? 'נוסף על ידי משתמש' : 'נבחר על ידי צוות האפליקציה';
@@ -124,11 +129,21 @@ export default function PlaceSheet({ place, community, update, onClose }: Props)
 
       {writing ? (
         <ReviewForm
+          shared={cloud.signedIn}
           onCancel={() => setWriting(false)}
-          onSave={(review) => {
+          onSave={async (review) => {
+            if (cloud.signedIn) {
+              // Shared with the community, under the author's display name (no photos yet).
+              const error = await cloud.save({ stars: review.stars, text: review.text, visited: review.visited, costUsd: review.costUsd, tags: review.tags });
+              if (error) return error;
+              setWriting(false);
+              setNotice('הביקורת פורסמה לקהילה. תודה! 🙌');
+              return null;
+            }
             const ok = update((c) => ({ ...c, reviews: [...c.reviews, { ...review, placeId: place.id }] }));
             if (ok) setWriting(false);
-            else window.alert('אין מספיק מקום במכשיר. נסו בלי תמונה, או גבו ומחקו ביקורות ישנות.');
+            else return 'אין מספיק מקום במכשיר. נסו בלי תמונה, או גבו ומחקו ביקורות ישנות.';
+            return null;
           }}
         />
       ) : (
@@ -137,7 +152,15 @@ export default function PlaceSheet({ place, community, update, onClose }: Props)
         </button>
       )}
 
-      {reviews.length === 0 && !writing && <p className="muted small center">עוד אין ביקורות על המקום. היו הראשונים!</p>}
+      {cloud.enabled && !cloud.signedIn && !writing && (
+        <p className="muted small">
+          🔒 ביקורת שתכתבו עכשיו תישמר רק במכשיר. <a className="link" href="#/account">התחברו</a> כדי לפרסם אותה לקהילה.
+        </p>
+      )}
+      {notice && <p className="status-line" role="status">{notice}</p>}
+      {cloud.error && <p className="muted small">לא הצלחנו לטעון ביקורות מהקהילה. {cloud.error}</p>}
+
+      {reviews.length === 0 && !writing && !cloud.loading && <p className="muted small center">עוד אין ביקורות על המקום. היו הראשונים!</p>}
 
       <ul className="reviews">
         {reviews.map((r) => (
@@ -145,6 +168,7 @@ export default function PlaceSheet({ place, community, update, onClose }: Props)
             <div className="review-head">
               <span>{'⭐'.repeat(r.stars)}</span>
               <span className="muted small">
+                {r.remote ? `${r.author ?? 'מטייל'} · ` : '📱 שמורה במכשיר · '}
                 ביקור ב{formatMonth(r.visited)}
                 {r.costUsd ? ` · ${formatUsd(r.costUsd)}` : ''}
               </span>
@@ -160,12 +184,29 @@ export default function PlaceSheet({ place, community, update, onClose }: Props)
             )}
             {r.text && <p>{r.text}</p>}
             {r.photo && <img src={r.photo} alt="" className="review-photo" loading="lazy" />}
-            <button
-              className="link-btn danger small"
-              onClick={() => window.confirm('למחוק את הביקורת?') && update((c) => ({ ...c, reviews: c.reviews.filter((x) => x.id !== r.id) }))}
-            >
-              מחיקה
-            </button>
+            {r.remote && !r.mine && cloud.signedIn && (
+              <button
+                className="link-btn small"
+                onClick={async () => {
+                  if (!window.confirm('לדווח על הביקורת הזו כלא הולמת? שלושה דיווחים מסתירים אותה עד בדיקה.')) return;
+                  setNotice((await cloud.report(r.id, 'reported from app')) ?? 'הדיווח נשלח. תודה.');
+                }}
+              >
+                🚩 דיווח
+              </button>
+            )}
+            {(!r.remote || r.mine) && (
+              <button
+                className="link-btn danger small"
+                onClick={async () => {
+                  if (!window.confirm('למחוק את הביקורת?')) return;
+                  if (r.remote) setNotice(await cloud.remove(r.id));
+                  else update((c) => ({ ...c, reviews: c.reviews.filter((x) => x.id !== r.id) }));
+                }}
+              >
+                מחיקה
+              </button>
+            )}
           </li>
         ))}
       </ul>
@@ -228,8 +269,18 @@ function GoogleInfo({ place }: { place: Place }) {
   );
 }
 
-function ReviewForm({ onSave, onCancel }: { onSave: (r: Review) => void; onCancel: () => void }) {
+interface ReviewFormProps {
+  /** true when the review will be published to the community (signed in) */
+  shared: boolean;
+  /** Returns an error message to show, or null on success */
+  onSave: (r: Review) => Promise<string | null> | string | null;
+  onCancel: () => void;
+}
+
+function ReviewForm({ shared, onSave, onCancel }: ReviewFormProps) {
   const thisMonth = new Date().toISOString().slice(0, 7);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const [stars, setStars] = useState(0);
   const [text, setText] = useState('');
   const [visited, setVisited] = useState(thisMonth);
@@ -277,47 +328,61 @@ function ReviewForm({ onSave, onCancel }: { onSave: (r: Review) => void; onCance
         <textarea rows={3} placeholder="מה היה טוב, מה פחות, טיפ למי שמגיע אחריכם…" value={text} onChange={(e) => setText(e.target.value)} />
       </label>
 
-      <label className="photo-input">
-        <span>{photo ? '📷 תמונה נוספה (לחצו להחלפה)' : '📷 הוספת תמונה (לא חובה)'}</span>
-        <input
-          type="file"
-          accept="image/*"
-          hidden
-          onChange={async (e) => {
-            const file = e.target.files?.[0];
-            if (!file) return;
-            setBusy(true);
-            try {
-              setPhoto(await resizeImage(file));
-            } catch {
-              window.alert('לא הצלחנו לקרוא את התמונה.');
-            } finally {
-              setBusy(false);
-            }
-          }}
-        />
-      </label>
-      {photo && <img src={photo} alt="" className="review-photo" />}
+      {shared ? (
+        <p className="muted small">🌐 הביקורת תפורסם לקהילה בשם התצוגה שלכם. תמונות נשמרות רק בביקורות שבמכשיר, בשלב הזה.</p>
+      ) : (
+        <>
+          <label className="photo-input">
+            <span>{photo ? '📷 תמונה נוספה (לחצו להחלפה)' : '📷 הוספת תמונה (לא חובה)'}</span>
+            <input
+              type="file"
+              accept="image/*"
+              hidden
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                setBusy(true);
+                try {
+                  setPhoto(await resizeImage(file));
+                } catch {
+                  window.alert('לא הצלחנו לקרוא את התמונה.');
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            />
+          </label>
+          {photo && <img src={photo} alt="" className="review-photo" />}
+        </>
+      )}
+      {error && <p className="status-line status-error" role="alert">{error}</p>}
 
       <div className="form-actions">
         <button
           className="btn"
-          disabled={!stars || busy}
-          onClick={() =>
-            onSave({
-              id: newId(),
-              placeId: '',
-              stars,
-              text: text.trim(),
-              visited,
-              costUsd: Number(cost) > 0 ? Number(cost) : undefined,
-              tags,
-              photo,
-              createdAt: Date.now(),
-            })
-          }
+          disabled={!stars || busy || saving}
+          onClick={async () => {
+            setSaving(true);
+            setError(null);
+            try {
+              const problem = await onSave({
+                id: newId(),
+                placeId: '',
+                stars,
+                text: text.trim(),
+                visited,
+                costUsd: Number(cost) > 0 ? Number(cost) : undefined,
+                tags,
+                photo: shared ? undefined : photo,
+                createdAt: Date.now(),
+              });
+              if (problem) setError(problem);
+            } finally {
+              setSaving(false);
+            }
+          }}
         >
-          {stars ? 'פרסום' : 'בחרו דירוג'}
+          {saving ? 'שומר…' : stars ? (shared ? 'פרסום לקהילה' : 'שמירה במכשיר') : 'בחרו דירוג'}
         </button>
         <button className="btn btn-secondary" onClick={onCancel}>
           ביטול

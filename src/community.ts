@@ -37,6 +37,10 @@ export interface Review {
   /** Small JPEG data URL */
   photo?: string;
   createdAt: number;
+  /** Shared (cloud) reviews only: the author's display name, and whether the viewer wrote it */
+  author?: string;
+  remote?: boolean;
+  mine?: boolean;
 }
 
 export interface CheckIn {

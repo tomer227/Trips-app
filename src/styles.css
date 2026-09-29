@@ -1973,3 +1973,41 @@ textarea {
   border: 2px dashed var(--accent);
   font-size: 0.85rem;
 }
+
+/* ─── Accounts ─── */
+.tabs-3 {
+  grid-template-columns: repeat(3, 1fr);
+  margin: 0 0 12px;
+}
+
+.privacy-note {
+  margin-top: 16px;
+  font-size: 0.9rem;
+}
+
+.privacy-note ul {
+  margin: 6px 0 0;
+  padding-inline-start: 18px;
+  display: grid;
+  gap: 4px;
+}
+
+.update-banner {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  background: var(--accent);
+  color: #1c1917;
+  font-weight: 600;
+}
+
+.card + .card,
+.card + .status-line,
+.status-line + .card {
+  margin-top: 12px;
+}

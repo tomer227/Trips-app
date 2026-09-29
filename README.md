@@ -20,6 +20,8 @@
 
 כל הנתונים האישיים נשמרים מקומית במכשיר (localStorage).
 
+- **חשבונות משתמשים (Supabase)** – הרשמה וכניסה, סנכרון בין מכשירים וביקורות משותפות לקהילה. ראו [docs/SUPABASE_SETUP.md](docs/SUPABASE_SETUP.md). בלי הגדרה האפליקציה ממשיכה לעבוד מקומית.
+
 ## העלאה לאוויר
 ראו [docs/FIREBASE_DEPLOY.md](docs/FIREBASE_DEPLOY.md) (Firebase Hosting + Function) ו-[docs/WEEKLY_PLACES.md](docs/WEEKLY_PLACES.md) (עדכון שבועי).
 

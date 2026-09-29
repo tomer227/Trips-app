@@ -16,9 +16,20 @@ import MapPage from './pages/MapPage';
 import HotPage from './pages/HotPage';
 import FaqPage from './pages/FaqPage';
 import AboutPage from './pages/AboutPage';
+import AccountPage from './pages/AccountPage';
+import { AuthProvider, useAuth } from './cloud/AuthContext';
 
 export default function App() {
+  return (
+    <AuthProvider>
+      <AppShell />
+    </AuthProvider>
+  );
+}
+
+function AppShell() {
   const route = useRoute();
+  const { updateAvailable } = useAuth();
   const [plan, setPlan] = usePersistentState<TripPlan>('trip-plan', emptyPlan);
 
   const addToTrip = (countryId: string, days: number) =>
@@ -67,12 +78,23 @@ export default function App() {
     case 'about':
       page = <AboutPage />;
       break;
+    case 'account':
+      page = <AccountPage />;
+      break;
     default:
       page = <Home plan={plan} />;
   }
 
   return (
     <div className="app">
+      {updateAvailable && (
+        <div className="update-banner" role="status">
+          <span>יש עדכון מהענן ממכשיר אחר.</span>
+          <button className="btn btn-small" onClick={() => window.location.reload()}>
+            רענון
+          </button>
+        </div>
+      )}
       <main className="content">{page}</main>
       <BottomNav route={route} />
     </div>

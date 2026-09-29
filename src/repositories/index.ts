@@ -3,6 +3,7 @@ import { emptyPlan } from '../budget';
 import type { Place } from '../data/places';
 import type { CheckIn, Community, Review } from '../community';
 import { emptyCommunity } from '../community';
+import { notifyStorageChange } from '../storage';
 
 /**
  * Persistence boundary. The UI talks to these interfaces so the storage behind them can move from
@@ -47,7 +48,10 @@ export function readCommunity(): Community {
 /** Returns false when the write failed (e.g. storage full because of photos). */
 export function writeCommunity(value: Community): boolean {
   try {
-    localStorage.setItem(COMMUNITY_KEY, JSON.stringify(value));
+    const next = JSON.stringify(value);
+    const changed = localStorage.getItem(COMMUNITY_KEY) !== next;
+    localStorage.setItem(COMMUNITY_KEY, next);
+    if (changed) notifyStorageChange(COMMUNITY_KEY);
     return true;
   } catch {
     return false;
