@@ -1,6 +1,7 @@
 import { countries, getCountry, regions } from '../data/countries';
-import { calcTrip, emptyPlan, formatDuration, formatUsd, type TravelStyle, type TripPlan } from '../budget';
+import { calcTrip, emptyPlan, formatDuration, formatDateRange, formatUsd, stopWindows, type TravelStyle, type TripPlan } from '../budget';
 import PageHeader from '../components/PageHeader';
+import WhoElseThere from '../components/WhoElseThere';
 
 interface Props {
   plan: TripPlan;
@@ -9,6 +10,7 @@ interface Props {
 
 export default function PlanPage({ plan, setPlan }: Props) {
   const totals = calcTrip(plan);
+  const windows = stopWindows(plan);
   const available = countries.filter((c) => !plan.stops.some((s) => s.countryId === c.id));
 
   const updateDays = (index: number, days: number) =>
@@ -91,6 +93,10 @@ export default function PlanPage({ plan, setPlan }: Props) {
       </div>
 
       <h2 className="section-title">המסלול</h2>
+      <label className="card start-date">
+        <span>📅 מתי יוצאים?</span>
+        <input type="date" value={plan.startDate ?? ''} onChange={(e) => setPlan((p) => ({ ...p, startDate: e.target.value || undefined }))} />
+      </label>
       {plan.stops.length === 0 ? (
         <div className="card empty">
           <p>המסלול ריק. הוסיפו מדינה מהרשימה למטה, או היכנסו לעמוד של מדינה ולחצו "הוסיפו לטיול".</p>
@@ -106,7 +112,10 @@ export default function PlanPage({ plan, setPlan }: Props) {
                 <span className="stop-num">{i + 1}</span>
                 <a className="stop-name" href={`#/country/${c.id}`}>
                   {c.flag} {c.name}
-                  <span className="muted">{formatUsd(cost)}</span>
+                  <span className="muted">
+                    {formatUsd(cost)}
+                    {windows[i] && ` · ${formatDateRange(windows[i].from, windows[i].to)}`}
+                  </span>
                 </a>
                 <div className="stepper" aria-label={`ימים ב${c.name}`}>
                   <button onClick={() => updateDays(i, stop.days - 1)} aria-label="פחות יום">
@@ -162,6 +171,8 @@ export default function PlanPage({ plan, setPlan }: Props) {
           </select>
         </label>
       )}
+
+      <WhoElseThere plan={plan} setPlan={setPlan} />
 
       <h2 className="section-title">הוצאות נוספות</h2>
       <div className="card form-grid">

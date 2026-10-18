@@ -10,6 +10,7 @@ import {
   type CloudUser,
   type NewReview,
   type SyncBlob,
+  cleanTripWindows,
 } from './types';
 
 interface ErrorLike {
@@ -233,6 +234,25 @@ export function createSupabaseBackend(client: SupabaseClient, redirectTo: () => 
       const { error } = await client.from('reports').insert({ review_id: id, reporter_id: user.id, reason: reason.slice(0, 500) });
       // 23505: this user already reported the review – that is fine.
       if (error && String(error.code) !== '23505') throw mapSupabaseError(error);
+    },
+
+    async publishTrip(windows) {
+      await requireUser();
+      const p_windows = cleanTripWindows(windows).map((w) => ({ country_id: w.countryId, from_date: w.from, to_date: w.to }));
+      const { error } = await client.rpc('set_my_trip', { p_windows });
+      if (error) throw mapSupabaseError(error);
+    },
+
+    async whoElseThere() {
+      await requireUser();
+      const { data, error } = await client.rpc('who_else_there');
+      if (error) throw mapSupabaseError(error);
+      return ((data ?? []) as { display_name: string | null; country_id: string; from_date: string; to_date: string }[]).map((r) => ({
+        name: r.display_name ?? 'מטייל',
+        countryId: r.country_id,
+        from: r.from_date,
+        to: r.to_date,
+      }));
     },
   };
 

@@ -142,6 +142,15 @@ describe('auth', () => {
     expect(raw.rpc).toHaveBeenCalledWith('delete_my_account');
     expect(raw.auth.signOut).toHaveBeenCalled();
   });
+
+  it('publishes the trip and reads fellow travellers through database functions', async () => {
+    const { client, raw } = fakeClient({ results: { rpc: { data: [{ display_name: 'יוסי', country_id: 'peru', from_date: '2099-01-01', to_date: '2099-01-09' }], error: null } } });
+    const b = createSupabaseBackend(client, REDIRECT);
+    await b.publishTrip([{ countryId: 'peru', from: '2099-01-01', to: '2099-01-31' }, { countryId: 'peru', from: '2099-02-01', to: '2099-01-01' }]);
+    expect(raw.rpc).toHaveBeenCalledWith('set_my_trip', { p_windows: [{ country_id: 'peru', from_date: '2099-01-01', to_date: '2099-01-31' }] });
+    expect(await b.whoElseThere()).toEqual([{ name: 'יוסי', countryId: 'peru', from: '2099-01-01', to: '2099-01-09' }]);
+    expect(raw.rpc).toHaveBeenCalledWith('who_else_there');
+  });
 });
 
 describe('private data', () => {

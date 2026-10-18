@@ -10,7 +10,7 @@
 
 ## א. Supabase
 1. פתח את הפרויקט. **SQL Editor → New query.**
-2. הדבק את כל התוכן של `supabase/migrations/0001_init.sql` (בקובץ בפרויקט) ולחץ **Run**. המטרה: הודעת הצלחה, בלי שגיאה אדומה. אם יש שגיאה, עצור והראה אותה למשתמש.
+2. הדבק את כל התוכן של `supabase/migrations/0001_init.sql` (בקובץ בפרויקט) ולחץ **Run**, ואחריו באותו אופן את `supabase/migrations/0002_who_else_there.sql`. המטרה: הודעת הצלחה, בלי שגיאה אדומה. אם יש שגיאה, עצור והראה אותה למשתמש.
 3. **Authentication → URL Configuration:**
    - Site URL: כתובת האתר אחרי הפריסה (`https://<project-id>.web.app`). אם עוד אין, בצע את סעיף ג' קודם, או חזור אליו אחר כך.
    - Redirect URLs: אותה כתובת עם `/` בסוף, וגם `http://localhost:5173/`.

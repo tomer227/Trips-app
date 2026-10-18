@@ -93,4 +93,30 @@ describe('memory backend', () => {
     expect(await b.listReviews('kasol')).toEqual([]);
     expect(await code(b.signIn({ email: 'a@b.co', password: 'password123' }))).toBe('invalid_credentials');
   });
+
+  it('shows who else will be in the same country at the same time, only to travellers who share', async () => {
+    const st = store();
+    const b = createMemoryBackend(st);
+    const far = (m: number) => `2099-0${m}`;
+    await b.signUp({ email: 'a@b.co', password: 'password123', displayName: 'דנה' });
+    await b.publishTrip([{ countryId: 'peru', from: `${far(1)}-01`, to: `${far(1)}-31` }, { countryId: 'bolivia', from: `${far(2)}-01`, to: `${far(2)}-10` }]);
+    await b.signOut();
+
+    await b.signUp({ email: 'c@d.co', password: 'password123', displayName: 'יוסי' });
+    expect(await b.whoElseThere()).toEqual([]); // not sharing yet: sees nobody
+    await b.publishTrip([
+      { countryId: 'peru', from: `${far(1)}-20`, to: `${far(2)}-05` },
+      { countryId: 'chile', from: `${far(1)}-01`, to: `${far(1)}-31` },
+      { countryId: 'bad id!', from: `${far(1)}-01`, to: `${far(1)}-02` },
+    ]);
+    expect(await b.whoElseThere()).toEqual([{ name: 'דנה', countryId: 'peru', from: `${far(1)}-01`, to: `${far(1)}-31` }]);
+
+    await b.publishTrip([]);
+    expect(await b.whoElseThere()).toEqual([]);
+    await b.signOut();
+    await b.signIn({ email: 'a@b.co', password: 'password123' });
+    expect(await b.whoElseThere()).toEqual([]); // יוסי stopped sharing
+    await b.signOut();
+    expect(await code(b.publishTrip([]))).toBe('not_signed_in');
+  });
 });

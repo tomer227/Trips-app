@@ -85,6 +85,20 @@ export interface SyncBlob {
   keys: Partial<Record<SyncKey, SyncEntry>>;
 }
 
+/* ─── "מי עוד שם" ─── */
+
+export interface TripWindow {
+  countryId: string;
+  /** YYYY-MM-DD */
+  from: string;
+  /** YYYY-MM-DD */
+  to: string;
+}
+
+export interface FellowTraveler extends TripWindow {
+  name: string;
+}
+
 export type AuthEvent = 'SIGNED_IN' | 'SIGNED_OUT' | 'PASSWORD_RECOVERY' | 'USER_UPDATED' | 'INITIAL';
 
 export interface CloudBackend {
@@ -109,4 +123,22 @@ export interface CloudBackend {
   saveReview(review: NewReview): Promise<CloudReview>;
   deleteReview(id: string): Promise<void>;
   reportReview(id: string, reason: string): Promise<void>;
+
+  /** Replaces this user's published trip dates. An empty list hides the user from others. */
+  publishTrip(windows: TripWindow[]): Promise<void>;
+  /** Other travellers whose published dates overlap this user's own published dates. */
+  whoElseThere(): Promise<FellowTraveler[]>;
 }
+
+export const MAX_TRIP_WINDOWS = 30;
+
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Keeps only well-formed windows (the database applies the same rules), at most MAX_TRIP_WINDOWS. */
+export function cleanTripWindows(windows: TripWindow[]): TripWindow[] {
+  return windows
+    .filter((w) => /^[a-z-]{2,40}$/.test(w.countryId) && ISO_DAY.test(w.from) && ISO_DAY.test(w.to) && w.from <= w.to)
+    .slice(0, MAX_TRIP_WINDOWS);
+}
+
+export const windowsOverlap = (a: TripWindow, b: TripWindow) => a.countryId === b.countryId && a.from <= b.to && b.from <= a.to;

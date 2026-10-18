@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calcTrip, emptyPlan, formatDuration } from './budget';
+import { calcTrip, emptyPlan, formatDuration, formatDateRange, formatShortDate, stopWindows } from './budget';
 import { parseRoute } from './router';
 
 describe('calcTrip', () => {
@@ -55,5 +55,26 @@ describe('parseRoute', () => {
     expect(parseRoute('#/journal')).toEqual({ name: 'journal' });
     expect(parseRoute('#/map/kasol')).toEqual({ name: 'map', id: 'kasol' });
     expect(parseRoute('#/hot')).toEqual({ name: 'hot' });
+  });
+});
+
+describe('stopWindows', () => {
+  const plan = { ...emptyPlan, stops: [{ countryId: 'peru', days: 30 }, { countryId: 'bolivia', days: 3 }] };
+
+  it('lays the stops back to back from the start date, across months and years', () => {
+    expect(stopWindows({ ...plan, startDate: '2026-12-15' })).toEqual([
+      { countryId: 'peru', from: '2026-12-15', to: '2027-01-13' },
+      { countryId: 'bolivia', from: '2027-01-14', to: '2027-01-16' },
+    ]);
+  });
+
+  it('is empty without a valid start date', () => {
+    expect(stopWindows(plan)).toEqual([]);
+    expect(stopWindows({ ...plan, startDate: 'soon' })).toEqual([]);
+  });
+
+  it('formats short Israeli-style dates', () => {
+    expect(formatShortDate('2027-01-04')).toBe('4.1');
+    expect(formatDateRange('2027-01-04', '2027-02-10')).toBe('4.1 עד 10.2');
   });
 });

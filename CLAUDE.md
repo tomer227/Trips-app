@@ -9,7 +9,7 @@ A mobile-first, Hebrew (RTL) PWA guide for young Israelis on the post-army "big 
 ```
 npm install
 npm run dev              # dev server; /api/places is served by server/vitePlugin.ts (needs GOOGLE_MAPS_API_KEY in .env.local)
-npm test                 # vitest (154 tests)
+npm test                 # vitest (161 tests)
 npm run build            # tsc -b && vite build -> dist/
 npm run build:functions  # bundles the Firebase function into functions/index.js
 npm run weekly-places    # weekly places report (needs GOOGLE_MAPS_API_KEY)
@@ -21,7 +21,7 @@ npm run weekly-places    # weekly places report (needs GOOGLE_MAPS_API_KEY)
 - `src/places` – Google layer: API client (memory cache only), mapping to the app's `Place`, filters, categories, hotspot model.
 - `server/places.ts` – framework-free proxy for Google Places (key stays server-side, fixed field masks, validation, cache, rate limit). Adapters: `api/places/[action].ts` (Vercel), `netlify/functions/places.ts`, `functions/src/index.ts` (Firebase), `server/vitePlugin.ts` (dev/preview).
 - `src/cloud` – accounts: `CloudBackend` interface, Supabase and in-memory implementations, private sync engine (`sync.ts`), `AuthContext`.
-- `supabase/migrations/0001_init.sql` – schema + Row Level Security. `supabase/rls.test.ts` runs it on Postgres (PGlite).
+- `supabase/migrations/0001_init.sql` – schema + Row Level Security; `0002_who_else_there.sql` – "מי עוד שם" (opt-in trip dates, `set_my_trip` / `who_else_there` functions, table closed to direct reads). `supabase/rls.test.ts` runs both on Postgres (PGlite).
 - `scripts/weekly-places.ts` + `.github/workflows/weekly-places.yml` – weekly report as a GitHub issue.
 - `docs/` – setup guides: `FIREBASE_DEPLOY.md`, `SUPABASE_SETUP.md`, `GOOGLE_PLACES_SETUP.md`, `WEEKLY_PLACES.md`.
 

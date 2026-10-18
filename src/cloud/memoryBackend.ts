@@ -7,8 +7,12 @@ import {
   type CloudBackend,
   type CloudReview,
   type CloudUser,
+  type FellowTraveler,
   type NewReview,
   type SyncBlob,
+  type TripWindow,
+  cleanTripWindows,
+  windowsOverlap,
 } from './types';
 
 interface MemUser {
@@ -24,11 +28,12 @@ interface MemState {
   userData: Record<string, SyncBlob>;
   reviews: (CloudReview & { hidden?: boolean })[];
   reports: { reviewId: string; reporterId: string; reason: string }[];
+  trips: Record<string, TripWindow[]>;
 }
 
 const KEY = 'memory-cloud';
 
-const empty = (): MemState => ({ users: [], sessionUserId: null, userData: {}, reviews: [], reports: [] });
+const empty = (): MemState => ({ users: [], sessionUserId: null, userData: {}, reviews: [], reports: [], trips: {} });
 
 /**
  * A complete in-memory stand-in for the cloud, persisted in localStorage so it survives reloads.
@@ -149,6 +154,7 @@ export function createMemoryBackend(storage: Pick<Storage, 'getItem' | 'setItem'
       state.users = state.users.filter((x) => x.id !== u.id);
       state.reviews = state.reviews.filter((r) => r.userId !== u.id);
       delete state.userData[u.id];
+      delete state.trips[u.id];
       state.sessionUserId = null;
       save();
       emit('SIGNED_OUT');
@@ -206,6 +212,28 @@ export function createMemoryBackend(storage: Pick<Storage, 'getItem' | 'setItem'
         if (review) review.hidden = true;
       }
       save();
+    },
+
+    async publishTrip(windows) {
+      const u = requireUser();
+      const clean = cleanTripWindows(windows);
+      if (clean.length) state.trips[u.id] = clean;
+      else delete state.trips[u.id];
+      save();
+    },
+
+    async whoElseThere() {
+      const u = requireUser();
+      const mine = state.trips[u.id] ?? [];
+      const today = new Date().toISOString().slice(0, 10);
+      const found: FellowTraveler[] = [];
+      for (const [userId, windows] of Object.entries(state.trips)) {
+        if (userId === u.id) continue;
+        const name = state.users.find((x) => x.id === userId)?.displayName;
+        if (!name) continue;
+        for (const w of windows) if (w.to >= today && mine.some((m) => windowsOverlap(m, w))) found.push({ name, ...w });
+      }
+      return found.sort((a, b) => a.from.localeCompare(b.from));
     },
   };
 }

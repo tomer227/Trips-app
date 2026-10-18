@@ -12,7 +12,7 @@
 
 ## הפעלה (חד־פעמית, בדשבורד של Supabase)
 1. **צרו פרויקט** ב־[supabase.com](https://supabase.com) (או השתמשו בקיים).
-2. **SQL Editor → New query.** הדביקו את כל התוכן של `supabase/migrations/0001_init.sql` ולחצו **Run**. אם רואים "Success", הטבלאות וההרשאות נוצרו.
+2. **SQL Editor → New query.** הדביקו את כל התוכן של `supabase/migrations/0001_init.sql` ולחצו **Run**. אם רואים "Success", הטבלאות וההרשאות נוצרו. אחר כך פתחו שאילתה חדשה, הדביקו את `supabase/migrations/0002_who_else_there.sql` ולחצו **Run** שוב (זה מוסיף את "מי עוד שם").
 3. **Authentication → URL Configuration:**
    - **Site URL:** כתובת האתר, למשל `https://<project-id>.web.app`.
    - **Redirect URLs:** אותה כתובת עם `/` בסוף, וגם `http://localhost:5173/` לפיתוח.

@@ -2011,3 +2011,52 @@ textarea {
 .status-line + .card {
   margin-top: 12px;
 }
+
+/* ─── מי עוד שם ─── */
+.start-date {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+
+.who-else p {
+  margin: 0 0 10px;
+}
+
+.who-else .btn-small {
+  display: inline-block;
+}
+
+.who-list {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 0;
+  display: grid;
+  gap: 12px;
+}
+
+.who-list > li {
+  border-top: 1.5px dashed var(--border);
+  padding-top: 10px;
+}
+
+.who-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.who-count {
+  font-weight: 700;
+  color: var(--primary);
+}
+
+.who-list .tags {
+  list-style: none;
+  padding: 0;
+}

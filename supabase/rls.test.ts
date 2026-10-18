@@ -45,6 +45,7 @@ beforeAll(async () => {
   db = new PGlite();
   await db.exec(STUB);
   await db.exec(readFileSync('supabase/migrations/0001_init.sql', 'utf8'));
+  await db.exec(readFileSync('supabase/migrations/0002_who_else_there.sql', 'utf8'));
   await addUser(A, 'דנה');
   await addUser(B, 'יוסי');
   await addUser(C, null);
@@ -172,6 +173,36 @@ describe('reports and moderation', () => {
     expect(await as(null, 'select * from public.reviews_public where id = $1', [id])).toEqual([]);
     expect(await as(B, 'select * from public.reviews where id = $1', [id])).toEqual([]);
     expect((await as(A, 'select * from public.reviews where id = $1', [id])).length).toBe(1);
+  });
+});
+
+describe('who else is there', () => {
+  const trip = (...w: [string, string, string][]) => JSON.stringify(w.map(([country_id, from_date, to_date]) => ({ country_id, from_date, to_date })));
+  type Row = { display_name: string; country_id: string };
+
+  it('shows overlapping travellers only to those who share, and hides the raw table', async () => {
+    await as(A, 'select public.set_my_trip($1::jsonb)', [trip(['peru', '2099-01-01', '2099-01-31'])]);
+    expect(await as(C, 'select * from public.who_else_there()')).toEqual([]); // C shares nothing
+
+    await as(C, 'select public.set_my_trip($1::jsonb)', [trip(['peru', '2099-01-20', '2099-02-10'], ['chile', '2099-01-01', '2099-01-31'])]);
+    const seen = await as<Row>(C, 'select display_name, country_id from public.who_else_there()');
+    expect(seen).toEqual([{ display_name: 'דנה הטיילת', country_id: 'peru' }]);
+    expect((await as<Row>(A, 'select display_name, country_id from public.who_else_there()')).map((r) => r.country_id)).toEqual(['peru']);
+
+    await expect(as(A, 'select * from public.trip_windows')).rejects.toThrow(/permission denied/);
+    await expect(as(null, 'select * from public.who_else_there()')).rejects.toThrow(/permission denied/);
+    await expect(as(null, 'select public.set_my_trip($1::jsonb)', ['[]'])).rejects.toThrow(/permission denied/);
+  });
+
+  it('rejects bad trips, ignores past ones and stops sharing on an empty trip', async () => {
+    await expect(as(A, 'select public.set_my_trip($1::jsonb)', [trip(['peru', '2099-02-01', '2099-01-01'])])).rejects.toThrow(/check constraint/);
+    await expect(as(A, 'select public.set_my_trip($1::jsonb)', [trip(['<script>', '2099-01-01', '2099-01-02'])])).rejects.toThrow(/check constraint/);
+    await as(D, 'select public.set_my_trip($1::jsonb)', [trip(['peru', '2000-01-01', '2000-01-31'])]);
+    await as(D, 'select public.set_my_trip($1::jsonb)', [trip(['peru', '2099-01-01', '2099-01-31'], ['peru', '2000-01-01', '2000-01-31'])]);
+    expect((await as<Row>(C, 'select display_name, country_id from public.who_else_there()')).length).toBe(2); // A and D, not D's past trip
+
+    await as(A, 'select public.set_my_trip($1::jsonb)', ['[]']);
+    expect((await as<Row>(C, 'select display_name from public.who_else_there()')).map((r) => r.display_name)).not.toContain('דנה הטיילת');
   });
 });
 
