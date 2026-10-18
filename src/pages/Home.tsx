@@ -2,6 +2,15 @@ import { regions, countriesByRegion } from '../data/countries';
 import { calcTrip, formatDuration, formatUsd, type TripPlan } from '../budget';
 import { allPlaces, hotNow, shareText, useCommunity } from '../community';
 import { categoryInfo, monthNames } from '../data/places';
+import { usePersistentState } from '../storage';
+import { today } from '../journal';
+import { daysSince, emptySafety, okReminderDue, trekStatus, type SafetyState } from '../safety';
+
+const onlyHere = [
+  { href: '#/safety', icon: '🛟', title: 'רשת ביטחון', desc: '"אני בסדר" להורים בלחיצה, ויציאה לטרק עם תאריך חזרה' },
+  { href: '#/money', icon: '⏳', title: 'כמה זמן הכסף יחזיק?', desc: 'תחזית מההוצאות שלכם, ואיפה הכסף מחזיק הכי הרבה' },
+  { href: '#/shabbat', icon: '🕯️', title: 'שבת וחגים בדרך', desc: 'מתי נכנסת שבת איפה שאתם, ואיפה חוגגים את החג הבא' },
+];
 
 const quickLinks = [
   { href: '#/map', icon: '🗺️', title: 'המפה', desc: 'שביל החומוס עם ביקורות' },
@@ -21,6 +30,10 @@ export default function Home({ plan }: { plan: TripPlan }) {
   const hot = hotNow(everything, month);
   const hotPreview = [...hot.festivalsNow, ...hot.hotspots].slice(0, 4);
   const checkInPlace = everything.find((p) => p.id === community.checkIn?.placeId);
+  const [safety] = usePersistentState<SafetyState>('safety', emptySafety);
+  const trek = safety.trek ? trekStatus(safety.trek, today()) : null;
+  const okDue = !trek && okReminderDue(safety, Date.now());
+  const okDays = daysSince(safety.lastOkAt, Date.now());
 
   return (
     <>
@@ -29,6 +42,19 @@ export default function Home({ plan }: { plan: TripPlan }) {
         <h1>הטיול הגדול</h1>
         <p>כל מה שצריך לדעת – במקום אחד. בחרו לאן אתם טסים:</p>
       </section>
+
+      {(trek === 'late' || trek === 'overdue') && safety.trek && (
+        <a href="#/safety" className={`card safety-banner tone-${trek === 'overdue' ? 'bad' : 'warn'}`}>
+          <strong>🥾 חזרתם מ{safety.trek.name}?</strong>
+          <span className="small">המשפחה מחכה לשמוע. לחצו כדי לשלוח "חזרתי בשלום".</span>
+        </a>
+      )}
+      {okDue && (
+        <a href="#/safety" className="card safety-banner tone-info">
+          <strong>💚 הזמן לשלוח "אני בסדר"</strong>
+          <span className="small">{okDays === null ? 'עוד לא שלחתם הודעה הביתה' : `ההודעה האחרונה הביתה הייתה לפני ${okDays} ימים`} – לוקח שנייה.</span>
+        </a>
+      )}
 
       {checkInPlace && (
         <div className="card here-banner">
@@ -59,6 +85,21 @@ export default function Home({ plan }: { plan: TripPlan }) {
         <strong>🗺️ המפה של שביל החומוס</strong>
         <span>{everything.length} מקומות, פסטיבלים ואזהרות – עם ביקורות "בעין ישראלית"</span>
       </a>
+
+      <h2 className="section-title only-here-title">✨ רק אצלנו</h2>
+      <div className="only-here">
+        {onlyHere.map((l) => (
+          <a key={l.href} href={l.href} className="card only-here-card">
+            <span className="quick-icon" aria-hidden="true">
+              {l.icon}
+            </span>
+            <span className="country-text">
+              <strong>{l.title}</strong>
+              <span className="muted small">{l.desc}</span>
+            </span>
+          </a>
+        ))}
+      </div>
 
       <div className="region-grid">
         {regions.map((r) => (
