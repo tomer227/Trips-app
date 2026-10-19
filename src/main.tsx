@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import '@fontsource-variable/rubik';
 import App from './App';
 import './styles.css';
+import './features.css';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

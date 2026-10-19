@@ -17,6 +17,9 @@ import HotPage from './pages/HotPage';
 import FaqPage from './pages/FaqPage';
 import AboutPage from './pages/AboutPage';
 import AccountPage from './pages/AccountPage';
+import SafetyPage from './pages/SafetyPage';
+import ShabbatPage from './pages/ShabbatPage';
+import MoneyPage from './pages/MoneyPage';
 import { AuthProvider, useAuth } from './cloud/AuthContext';
 
 export default function App() {
@@ -80,6 +83,15 @@ function AppShell() {
       break;
     case 'account':
       page = <AccountPage />;
+      break;
+    case 'safety':
+      page = <SafetyPage plan={plan} />;
+      break;
+    case 'shabbat':
+      page = <ShabbatPage plan={plan} />;
+      break;
+    case 'money':
+      page = <MoneyPage plan={plan} />;
       break;
     default:
       page = <Home plan={plan} />;

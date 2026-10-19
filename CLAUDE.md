@@ -9,7 +9,7 @@ A mobile-first, Hebrew (RTL) PWA guide for young Israelis on the post-army "big 
 ```
 npm install
 npm run dev              # dev server; /api/places is served by server/vitePlugin.ts (needs GOOGLE_MAPS_API_KEY in .env.local)
-npm test                 # vitest (161 tests)
+npm test                 # vitest (191 tests)
 npm run build            # tsc -b && vite build -> dist/
 npm run build:functions  # bundles the Firebase function into functions/index.js
 npm run weekly-places    # weekly places report (needs GOOGLE_MAPS_API_KEY)
