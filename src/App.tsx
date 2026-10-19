@@ -20,6 +20,7 @@ import AccountPage from './pages/AccountPage';
 import SafetyPage from './pages/SafetyPage';
 import ShabbatPage from './pages/ShabbatPage';
 import MoneyPage from './pages/MoneyPage';
+import PartnersPage from './pages/PartnersPage';
 import { AuthProvider, useAuth } from './cloud/AuthContext';
 
 export default function App() {
@@ -92,6 +93,9 @@ function AppShell() {
       break;
     case 'money':
       page = <MoneyPage plan={plan} />;
+      break;
+    case 'partners':
+      page = <PartnersPage plan={plan} />;
       break;
     default:
       page = <Home plan={plan} />;

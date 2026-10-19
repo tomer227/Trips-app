@@ -16,6 +16,8 @@ export type CloudErrorCode =
   | 'rate_limited'
   | 'network'
   | 'not_signed_in'
+  | 'too_many_posts'
+  | 'already_replied'
   | 'unknown';
 
 export class CloudError extends Error {
@@ -35,6 +37,8 @@ export const cloudErrorMessages: Record<CloudErrorCode, string> = {
   rate_limited: 'יותר מדי ניסיונות. נסו שוב בעוד כמה דקות.',
   network: 'אין חיבור לשרת. בדקו את האינטרנט ונסו שוב.',
   not_signed_in: 'צריך להתחבר כדי לבצע את הפעולה.',
+  too_many_posts: 'אפשר עד 5 מודעות פעילות. מחקו מודעה ישנה כדי לפרסם חדשה.',
+  already_replied: 'כבר שלחתם הודעה למודעה הזו.',
   unknown: 'משהו השתבש. נסו שוב.',
 };
 
@@ -99,6 +103,58 @@ export interface FellowTraveler extends TripWindow {
   name: string;
 }
 
+/* ─── "מחפשים שותף" ─── */
+
+export type PartnerKind = 'trek' | 'route' | 'ride' | 'room' | 'hangout';
+
+export const partnerKinds: { id: PartnerKind; icon: string; label: string }[] = [
+  { id: 'trek', icon: '🥾', label: 'טרק' },
+  { id: 'route', icon: '🗺️', label: 'חלק מהמסלול' },
+  { id: 'ride', icon: '🚙', label: 'נסיעה / ג׳יפ' },
+  { id: 'room', icon: '🛏️', label: 'לחלוק חדר' },
+  { id: 'hangout', icon: '🎉', label: 'לצאת ולבלות' },
+];
+
+export interface NewPartnerPost extends TripWindow {
+  kind: PartnerKind;
+  text: string;
+}
+
+export interface PartnerPost extends NewPartnerPost {
+  id: string;
+  userId: string;
+  author: string;
+  createdAt: number;
+}
+
+export interface PartnerReply {
+  id: string;
+  postId: string;
+  userId: string;
+  author: string;
+  text: string;
+  createdAt: number;
+}
+
+export const PARTNER_TEXT_MIN = 10;
+export const PARTNER_TEXT_MAX = 400;
+export const PARTNER_REPLY_MAX = 400;
+export const MAX_ACTIVE_PARTNER_POSTS = 5;
+
+/** The same rules as the database; returns an error message in Hebrew, or null when the post is fine. */
+export function validatePartnerPost(p: NewPartnerPost, today = new Date().toISOString().slice(0, 10)): string | null {
+  const len = p.text.trim().length;
+  if (!/^[a-z-]{2,40}$/.test(p.countryId)) return 'בחרו מדינה.';
+  if (!partnerKinds.some((k) => k.id === p.kind)) return 'בחרו סוג.';
+  if (!ISO_DAY.test(p.from) || !ISO_DAY.test(p.to)) return 'בחרו תאריכים.';
+  if (p.to < p.from) return 'תאריך הסיום לפני תאריך ההתחלה.';
+  if (p.to < today) return 'התאריכים כבר עברו.';
+  if ((Date.parse(p.to) - Date.parse(p.from)) / 86_400_000 > 366) return 'אפשר לפרסם לטווח של עד שנה.';
+  if (len < PARTNER_TEXT_MIN) return `כתבו לפחות ${PARTNER_TEXT_MIN} תווים על מה שאתם מחפשים.`;
+  if (len > PARTNER_TEXT_MAX) return `עד ${PARTNER_TEXT_MAX} תווים.`;
+  return null;
+}
+
 export type AuthEvent = 'SIGNED_IN' | 'SIGNED_OUT' | 'PASSWORD_RECOVERY' | 'USER_UPDATED' | 'INITIAL';
 
 export interface CloudBackend {
@@ -128,6 +184,17 @@ export interface CloudBackend {
   publishTrip(windows: TripWindow[]): Promise<void>;
   /** Other travellers whose published dates overlap this user's own published dates. */
   whoElseThere(): Promise<FellowTraveler[]>;
+
+  /** Current posts on the board (signed-in users only), soonest first. */
+  listPartnerPosts(): Promise<PartnerPost[]>;
+  createPartnerPost(post: NewPartnerPost): Promise<PartnerPost>;
+  deletePartnerPost(id: string): Promise<void>;
+  /** A private answer that only the post's author and the replier can read. One per post. */
+  replyToPartnerPost(postId: string, text: string): Promise<void>;
+  /** Replies this user can read: answers to their own posts and their own answers. */
+  listPartnerReplies(): Promise<PartnerReply[]>;
+  deletePartnerReply(id: string): Promise<void>;
+  reportPartnerPost(id: string, reason: string): Promise<void>;
 }
 
 export const MAX_TRIP_WINDOWS = 30;
