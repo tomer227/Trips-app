@@ -1,0 +1,321 @@
+/* ─── Differentiating features: safety net, Shabbat & holidays, money runway ─── */
+
+:root {
+  --good: #15803d;
+  --good-soft: #dcfce7;
+  --warn-soft: #fef3c7;
+  --bad-soft: #fee4e2;
+  --info-soft: var(--primary-soft);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --good: #4ade80;
+    --good-soft: #14321f;
+    --warn-soft: #3a2e0c;
+    --bad-soft: #3d1814;
+  }
+}
+
+.center {
+  text-align: center;
+}
+
+.error-text {
+  color: var(--danger);
+  margin: 0;
+}
+
+.feature-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.check-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+}
+
+.check-line input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--primary);
+}
+
+.tone-good {
+  border-color: var(--good);
+  background: var(--good-soft);
+}
+
+.tone-warn {
+  border-color: var(--accent);
+  background: var(--warn-soft);
+}
+
+.tone-bad {
+  border-color: var(--danger);
+  background: var(--bad-soft);
+}
+
+.tone-info {
+  border-color: var(--primary);
+  background: var(--info-soft);
+}
+
+/* Home */
+.safety-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 12px;
+}
+
+.only-here {
+  display: grid;
+  gap: 10px;
+}
+
+.only-here-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-color: var(--primary);
+  box-shadow: 0 3px 0 var(--primary);
+}
+
+.only-here-card .quick-icon {
+  font-size: 1.8rem;
+}
+
+.only-here-card + .only-here-card {
+  margin-top: 0;
+}
+
+/* Safety */
+.ok-card {
+  display: grid;
+  gap: 10px;
+}
+
+.ok-card p {
+  margin: 0;
+}
+
+.ok-button {
+  min-height: 72px;
+  font-size: 1.5rem;
+  background: var(--good);
+  box-shadow: 0 5px 0 #0f5e2c;
+  border-radius: 20px;
+}
+
+.trek-card {
+  display: grid;
+  gap: 8px;
+}
+
+.status-badge {
+  justify-self: start;
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.link-btn {
+  background: none;
+  border: 0;
+  padding: 0;
+  justify-self: start;
+  text-decoration: underline;
+}
+
+.sos-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.sos-call {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 8px 12px;
+  border-radius: 14px;
+  border: 2px solid var(--danger);
+  background: var(--bad-soft);
+}
+
+.sos-call strong {
+  white-space: nowrap;
+  color: var(--danger);
+}
+
+/* Shabbat */
+.shabbat-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+  margin-top: 12px;
+}
+
+.shabbat-times {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  width: 100%;
+  margin: 8px 0;
+}
+
+.shabbat-times div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px;
+  border-radius: 14px;
+  background: var(--primary-soft);
+}
+
+.shabbat-times strong {
+  font-size: 2rem;
+  line-height: 1.1;
+  color: var(--primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.shabbat-later {
+  margin-top: 12px;
+  padding-top: 12px;
+}
+
+.shabbat-later li {
+  gap: 8px;
+  font-size: 0.9rem;
+}
+
+.holiday-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.holiday {
+  display: grid;
+  gap: 6px;
+}
+
+.holiday + .holiday {
+  margin-top: 0;
+}
+
+.holiday-soon {
+  border-color: var(--accent);
+  box-shadow: 0 3px 0 var(--accent);
+}
+
+.holiday-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.holiday-emoji {
+  font-size: 1.8rem;
+}
+
+.holiday-title {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Money runway */
+.runway-source {
+  margin: 10px 0 0;
+  color: var(--muted);
+}
+
+.runway-verdict {
+  display: grid;
+  gap: 4px;
+}
+
+.runway-bars {
+  list-style: none;
+  margin: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.runway-bars li {
+  display: grid;
+  grid-template-columns: 7.5em 1fr 5.5em;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+}
+
+.runway-bars li.in-plan {
+  font-weight: 700;
+}
+
+.runway-name,
+.runway-days {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.runway-days {
+  text-align: end;
+}
+
+.runway-bar {
+  height: 10px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.runway-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--primary);
+}
+
+.in-plan .runway-bar span {
+  background: var(--accent);
+}
+
+/* Date inputs have a wide intrinsic size on mobile browsers – let them shrink inside forms. */
+.form-grid > *,
+.form-grid label,
+.form-row > * {
+  min-width: 0;
+}
+
+.form-grid input,
+.form-grid select {
+  width: 100%;
+  min-width: 0;
+}
+
+.only-here-title {
+  margin-top: 20px;
+}
+
+.only-here + .region-grid {
+  margin-top: 20px;
+}
