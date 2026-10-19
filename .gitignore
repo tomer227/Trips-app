@@ -12,3 +12,4 @@ functions/index.js
 functions/node_modules
 firebase-debug.log
 .firebase
+*.secret.local

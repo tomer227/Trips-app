@@ -44,8 +44,8 @@ const insertReview = (uid: string | null, r: ReturnType<typeof review> & Record<
 beforeAll(async () => {
   db = new PGlite();
   await db.exec(STUB);
-  await db.exec(readFileSync('supabase/migrations/0001_init.sql', 'utf8'));
-  await db.exec(readFileSync('supabase/migrations/0002_who_else_there.sql', 'utf8'));
+  // The exact file users paste into the Supabase SQL Editor (all migrations in order).
+  await db.exec(readFileSync('supabase/setup_all.sql', 'utf8'));
   await addUser(A, 'דנה');
   await addUser(B, 'יוסי');
   await addUser(C, null);

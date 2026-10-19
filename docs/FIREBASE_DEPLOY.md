@@ -13,17 +13,20 @@ Firebase Hosting מגיש את האפליקציה, ו־Cloud Function אחת (`p
 ```
 powershell -ExecutionPolicy Bypass -File scripts\deploy.ps1
 ```
-הסקריפט מבצע את כל השלבים למטה, ושואל אתכם רק על מה שרק אתם יכולים לתת: כניסה ל־Firebase, בחירת פרויקט, מפתח Google (חדש!) וכתובת ומפתח `anon` של Supabase. נכתב אך לא נבדק על Windows אמיתי.
+הסקריפט מבצע את כל השלבים למטה, ושואל אתכם רק על מה שרק אתם יכולים לתת: כניסה ל־Firebase, בחירת פרויקט, מפתח Google (חדש!) וכתובת ומפתח `anon` של Supabase. הוא גם כותב את `ALLOWED_ORIGINS` לבד (`functions/.env`). מדריך צעד־אחר־צעד למי שלא מתכנת: [`GO_LIVE.md`](GO_LIVE.md).
+
+> נבדק: הסקריפט רץ ב־PowerShell 7 עם `npx`/`npm` מדומים (כל התשובות, דחיית מפתח `service_role`/`sb_secret_`, קובץ `.env.local` בלי BOM). האתר והפונקציה נבדקו יחד ב־Firebase Emulator. **לא נבדק:** Windows PowerShell 5.1 אמיתי ופריסה אמיתית.
 
 ## פקודות ידניות (במחשב שלכם, בתיקיית הפרויקט)
 ```bash
 npm install
+npm --prefix functions install                          # Firebase טוען את הפונקציה מקומית לפני ההעלאה
 npx firebase-tools login
 npx firebase-tools use --add                           # בחירת הפרויקט
 npx firebase-tools functions:secrets:set GOOGLE_MAPS_API_KEY   # מדביקים את המפתח בהנחיה
 npx firebase-tools deploy
 ```
-בפריסה הראשונה תישאלו על `ALLOWED_ORIGINS`. הזינו את כתובת האתר, למשל `https://<project-id>.web.app,https://<project-id>.firebaseapp.com`.
+לפני הפריסה צרו את `functions/.env` עם השורה `ALLOWED_ORIGINS=https://<project-id>.web.app,https://<project-id>.firebaseapp.com` (הסקריפט עושה זאת לבד). בלי הקובץ, הפריסה הראשונה תשאל על הערך.
 
 הפריסה בונה את האתר (`npm run build`) ואת הפונקציה (`npm run build:functions`) לבד, ומדפיסה את הכתובת.
 
