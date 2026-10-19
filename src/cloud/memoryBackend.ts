@@ -9,9 +9,14 @@ import {
   type CloudUser,
   type FellowTraveler,
   type NewReview,
+  type PartnerPost,
+  type PartnerReply,
   type SyncBlob,
   type TripWindow,
+  MAX_ACTIVE_PARTNER_POSTS,
+  PARTNER_REPLY_MAX,
   cleanTripWindows,
+  validatePartnerPost,
   windowsOverlap,
 } from './types';
 
@@ -29,11 +34,14 @@ interface MemState {
   reviews: (CloudReview & { hidden?: boolean })[];
   reports: { reviewId: string; reporterId: string; reason: string }[];
   trips: Record<string, TripWindow[]>;
+  partnerPosts: (PartnerPost & { hidden?: boolean })[];
+  partnerReplies: PartnerReply[];
+  partnerReports: { postId: string; reporterId: string }[];
 }
 
 const KEY = 'memory-cloud';
 
-const empty = (): MemState => ({ users: [], sessionUserId: null, userData: {}, reviews: [], reports: [], trips: {} });
+const empty = (): MemState => ({ users: [], sessionUserId: null, userData: {}, reviews: [], reports: [], trips: {}, partnerPosts: [], partnerReplies: [], partnerReports: [] });
 
 /**
  * A complete in-memory stand-in for the cloud, persisted in localStorage so it survives reloads.
@@ -144,6 +152,8 @@ export function createMemoryBackend(storage: Pick<Storage, 'getItem' | 'setItem'
       u.displayName = name.trim();
       // Author names on existing reviews follow the profile, as in the database view.
       for (const r of state.reviews) if (r.userId === u.id) r.author = u.displayName;
+      for (const p of state.partnerPosts) if (p.userId === u.id) p.author = u.displayName;
+      for (const r of state.partnerReplies) if (r.userId === u.id) r.author = u.displayName;
       save();
       emit('USER_UPDATED');
       return toUser(u);
@@ -155,6 +165,9 @@ export function createMemoryBackend(storage: Pick<Storage, 'getItem' | 'setItem'
       state.reviews = state.reviews.filter((r) => r.userId !== u.id);
       delete state.userData[u.id];
       delete state.trips[u.id];
+      const gone = new Set(state.partnerPosts.filter((p) => p.userId === u.id).map((p) => p.id));
+      state.partnerPosts = state.partnerPosts.filter((p) => p.userId !== u.id);
+      state.partnerReplies = state.partnerReplies.filter((r) => r.userId !== u.id && !gone.has(r.postId));
       state.sessionUserId = null;
       save();
       emit('SIGNED_OUT');
@@ -234,6 +247,70 @@ export function createMemoryBackend(storage: Pick<Storage, 'getItem' | 'setItem'
         for (const w of windows) if (w.to >= today && mine.some((m) => windowsOverlap(m, w))) found.push({ name, ...w });
       }
       return found.sort((a, b) => a.from.localeCompare(b.from));
+    },
+
+    async listPartnerPosts() {
+      requireUser();
+      const today = new Date().toISOString().slice(0, 10);
+      return state.partnerPosts
+        .filter((p) => !p.hidden && p.to >= today)
+        .sort((a, b) => a.from.localeCompare(b.from))
+        .map(({ hidden: _hidden, ...p }) => p);
+    },
+
+    async createPartnerPost(input) {
+      const u = requireUser();
+      const problem = validatePartnerPost(input);
+      if (problem) throw new CloudError('unknown', problem);
+      const today = new Date().toISOString().slice(0, 10);
+      if (state.partnerPosts.filter((p) => p.userId === u.id && p.to >= today).length >= MAX_ACTIVE_PARTNER_POSTS) throw new CloudError('too_many_posts');
+      const post: PartnerPost = { ...input, text: input.text.trim(), id: crypto.randomUUID(), userId: u.id, author: u.displayName, createdAt: Date.now() };
+      state.partnerPosts.push(post);
+      save();
+      return post;
+    },
+
+    async deletePartnerPost(id) {
+      const u = requireUser();
+      if (!state.partnerPosts.some((p) => p.id === id && p.userId === u.id)) return;
+      state.partnerPosts = state.partnerPosts.filter((p) => p.id !== id);
+      state.partnerReplies = state.partnerReplies.filter((r) => r.postId !== id);
+      save();
+    },
+
+    async replyToPartnerPost(postId, text) {
+      const u = requireUser();
+      const today = new Date().toISOString().slice(0, 10);
+      const post = state.partnerPosts.find((p) => p.id === postId && !p.hidden && p.to >= today);
+      const body = text.trim().slice(0, PARTNER_REPLY_MAX);
+      if (!post || post.userId === u.id || body.length < 2) throw new CloudError('unknown', 'cannot reply');
+      if (state.partnerReplies.some((r) => r.postId === postId && r.userId === u.id)) throw new CloudError('already_replied');
+      state.partnerReplies.push({ id: crypto.randomUUID(), postId, userId: u.id, author: u.displayName, text: body, createdAt: Date.now() });
+      save();
+    },
+
+    async listPartnerReplies() {
+      const u = requireUser();
+      const mine = new Set(state.partnerPosts.filter((p) => p.userId === u.id).map((p) => p.id));
+      return state.partnerReplies.filter((r) => r.userId === u.id || mine.has(r.postId)).sort((a, b) => b.createdAt - a.createdAt);
+    },
+
+    async deletePartnerReply(id) {
+      const u = requireUser();
+      const mine = new Set(state.partnerPosts.filter((p) => p.userId === u.id).map((p) => p.id));
+      state.partnerReplies = state.partnerReplies.filter((r) => !(r.id === id && (r.userId === u.id || mine.has(r.postId))));
+      save();
+    },
+
+    async reportPartnerPost(id) {
+      const u = requireUser();
+      if (state.partnerReports.some((r) => r.postId === id && r.reporterId === u.id)) return;
+      state.partnerReports.push({ postId: id, reporterId: u.id });
+      if (new Set(state.partnerReports.filter((r) => r.postId === id).map((r) => r.reporterId)).size >= 3) {
+        const post = state.partnerPosts.find((p) => p.id === id);
+        if (post) post.hidden = true;
+      }
+      save();
     },
   };
 }

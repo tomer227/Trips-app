@@ -8,9 +8,15 @@ import {
   type CloudBackend,
   type CloudReview,
   type CloudUser,
+  type NewPartnerPost,
   type NewReview,
+  type PartnerKind,
+  type PartnerPost,
+  type PartnerReply,
   type SyncBlob,
+  PARTNER_REPLY_MAX,
   cleanTripWindows,
+  validatePartnerPost,
 } from './types';
 
 interface ErrorLike {
@@ -37,6 +43,7 @@ export function mapSupabaseError(err: unknown): CloudError {
   // Row Level Security violations and expired sessions both mean "not allowed as this user".
   if (code === '42501' || code === 'PGRST301' || code === 'PGRST303' || message.includes('jwt')) return new CloudError('not_signed_in');
   if (code === 'P0001' && message.includes('rate limit')) return new CloudError('rate_limited');
+  if (code === 'P0001' && message.includes('partner post limit')) return new CloudError('too_many_posts');
   return new CloudError('unknown', e.message);
 }
 
@@ -58,6 +65,32 @@ interface ReviewRow {
   created_at: string;
   author: string | null;
 }
+
+interface PartnerPostRow {
+  id: string;
+  user_id: string;
+  country_id: string;
+  from_date: string;
+  to_date: string;
+  kind: PartnerKind;
+  body: string;
+  created_at: string;
+  author: string | null;
+}
+
+export const rowToPartnerPost = (r: PartnerPostRow): PartnerPost => ({
+  id: r.id,
+  userId: r.user_id,
+  author: r.author?.trim() || 'מטייל',
+  countryId: r.country_id,
+  from: r.from_date,
+  to: r.to_date,
+  kind: r.kind,
+  text: r.body,
+  createdAt: Date.parse(r.created_at) || 0,
+});
+
+const PARTNER_POST_COLUMNS = 'id, user_id, country_id, from_date, to_date, kind, body, created_at, author';
 
 export function rowToReview(row: ReviewRow): CloudReview {
   const cost = row.cost_usd === null || row.cost_usd === undefined ? undefined : Number(row.cost_usd);
@@ -253,6 +286,79 @@ export function createSupabaseBackend(client: SupabaseClient, redirectTo: () => 
         from: r.from_date,
         to: r.to_date,
       }));
+    },
+
+    async listPartnerPosts() {
+      await requireUser();
+      const today = new Date().toISOString().slice(0, 10);
+      const { data, error } = await client
+        .from('partner_posts_public')
+        .select(PARTNER_POST_COLUMNS)
+        .gte('to_date', today)
+        .order('from_date', { ascending: true })
+        .limit(200);
+      if (error) throw mapSupabaseError(error);
+      return ((data ?? []) as PartnerPostRow[]).map(rowToPartnerPost);
+    },
+
+    async createPartnerPost(post: NewPartnerPost) {
+      const user = await requireUser();
+      const problem = validatePartnerPost(post);
+      if (problem) throw new CloudError('unknown', problem);
+      const { data, error } = await client
+        .from('partner_posts')
+        .insert({ user_id: user.id, country_id: post.countryId, from_date: post.from, to_date: post.to, kind: post.kind, body: post.text.trim() })
+        .select('id, user_id, country_id, from_date, to_date, kind, body, created_at')
+        .single();
+      if (error) throw mapSupabaseError(error);
+      return rowToPartnerPost({ ...(data as Omit<PartnerPostRow, 'author'>), author: user.displayName });
+    },
+
+    async deletePartnerPost(id) {
+      await requireUser();
+      const { error } = await client.from('partner_posts').delete().eq('id', id);
+      if (error) throw mapSupabaseError(error);
+    },
+
+    async replyToPartnerPost(postId, text) {
+      const user = await requireUser();
+      const body = text.trim().slice(0, PARTNER_REPLY_MAX);
+      const { error } = await client.from('partner_replies').insert({ post_id: postId, user_id: user.id, body });
+      if (error && String(error.code) === '23505') throw new CloudError('already_replied');
+      if (error) throw mapSupabaseError(error);
+    },
+
+    async listPartnerReplies() {
+      await requireUser();
+      const { data, error } = await client
+        .from('partner_replies_public')
+        .select('id, post_id, user_id, body, created_at, author')
+        .order('created_at', { ascending: false })
+        .limit(300);
+      if (error) throw mapSupabaseError(error);
+      return ((data ?? []) as { id: string; post_id: string; user_id: string; body: string; created_at: string; author: string | null }[]).map(
+        (r): PartnerReply => ({
+          id: r.id,
+          postId: r.post_id,
+          userId: r.user_id,
+          author: r.author?.trim() || 'מטייל',
+          text: r.body,
+          createdAt: Date.parse(r.created_at) || 0,
+        }),
+      );
+    },
+
+    async deletePartnerReply(id) {
+      await requireUser();
+      const { error } = await client.from('partner_replies').delete().eq('id', id);
+      if (error) throw mapSupabaseError(error);
+    },
+
+    async reportPartnerPost(id, reason) {
+      const user = await requireUser();
+      const { error } = await client.from('partner_reports').insert({ post_id: id, reporter_id: user.id, reason: reason.slice(0, 500) });
+      // 23505: this user already reported the post – that is fine.
+      if (error && String(error.code) !== '23505') throw mapSupabaseError(error);
     },
   };
 

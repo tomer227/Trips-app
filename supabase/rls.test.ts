@@ -206,6 +206,84 @@ describe('who else is there', () => {
   });
 });
 
+describe('partner board', () => {
+  const post = (uid: string | null, over: Partial<Record<'country' | 'from' | 'to' | 'kind' | 'body', string>> = {}) =>
+    as<{ id: string }>(uid, 'insert into public.partner_posts (country_id, from_date, to_date, kind, body) values ($1,$2,$3,$4,$5) returning id', [
+      over.country ?? 'peru',
+      over.from ?? '2099-03-01',
+      over.to ?? '2099-03-10',
+      over.kind ?? 'trek',
+      over.body ?? 'מחפשים שותפים לטרק סלקנטאי',
+    ]);
+  const reply = (uid: string | null, postId: string, body = 'גם אני! וואטסאפ 050-0000000') =>
+    as(uid, 'insert into public.partner_replies (post_id, body) values ($1,$2) returning id', [postId, body]);
+
+  it('shows current posts to signed-in users only, with the author name and no email', async () => {
+    const [{ id }] = await post(A);
+    const rows = await as<Record<string, unknown>>(B, 'select * from public.partner_posts_public where id = $1', [id]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].author).toBe('דנה הטיילת');
+    expect(Object.keys(rows[0])).not.toContain('email');
+    await expect(as(null, 'select * from public.partner_posts_public')).rejects.toThrow(/permission denied/);
+    await expect(as(null, 'select * from public.partner_posts')).rejects.toThrow(/permission denied/);
+    await expect(post(null)).rejects.toThrow(/permission denied/);
+  });
+
+  it('keeps replies between the post author and the replier', async () => {
+    const [{ id }] = await post(A, { kind: 'ride', body: 'חולקים ג׳יפ לאויוני' });
+    await reply(B, id);
+    await expect(reply(B, id, 'שוב')).rejects.toThrow(/duplicate key/);
+    await expect(reply(A, id, 'עונה לעצמי')).rejects.toThrow(/row-level security/);
+
+    const read = (uid: string) => as<{ author: string; body: string }>(uid, 'select author, body from public.partner_replies_public where post_id = $1', [id]);
+    expect((await read(A)).map((r) => r.author)).toEqual(['יוסי']);
+    expect(await read(B)).toHaveLength(1);
+    expect(await read(D)).toEqual([]); // a third user sees nothing
+    await expect(as(null, 'select * from public.partner_replies')).rejects.toThrow(/permission denied/);
+
+    // Nobody edits a reply; the post author can delete it.
+    await expect(as(B, "update public.partner_replies set body = 'x' where post_id = $1", [id])).rejects.toThrow(/permission denied/);
+    await as(A, 'delete from public.partner_replies where post_id = $1', [id]);
+    expect(await read(B)).toEqual([]);
+  });
+
+  it('hides past posts, blocks replies to them and rejects bad posts', async () => {
+    const [{ id: old }] = await post(B, { from: '2000-01-01', to: '2000-01-05' });
+    expect(await as(A, 'select id from public.partner_posts_public where id = $1', [old])).toEqual([]);
+    expect(await as(B, 'select id from public.partner_posts_public where id = $1', [old])).toHaveLength(1); // the author still sees it
+    await expect(reply(A, old)).rejects.toThrow(/row-level security/);
+
+    await expect(post(A, { kind: 'party' })).rejects.toThrow(/check constraint/);
+    await expect(post(A, { body: 'קצר' })).rejects.toThrow(/check constraint/);
+    await expect(post(A, { from: '2099-05-01', to: '2099-04-01' })).rejects.toThrow(/check constraint/);
+    await expect(post(A, { country: '<b>' })).rejects.toThrow(/check constraint/);
+    await expect(as(A, "update public.partner_posts set body = 'מחפשים שותפים אחרים' where user_id = $1", [A])).rejects.toThrow(/permission denied/);
+    await expect(as(A, 'insert into public.partner_posts (user_id, country_id, from_date, to_date, kind, body) values ($1,$2,$3,$4,$5,$6)', [B, 'peru', '2099-01-01', '2099-01-02', 'trek', 'מתחזה למישהו אחר'])).rejects.toThrow(/row-level security/);
+  });
+
+  it('limits current posts per user and lets only the author delete', async () => {
+    const mine = await as<{ c: number }>(C, 'select count(*)::int as c from public.partner_posts where user_id = $1', [C]);
+    for (let i = mine[0].c; i < 5; i++) await post(C, { body: `מודעה מספר ${i} לבדיקה` });
+    await expect(post(C)).rejects.toThrow(/limit reached/);
+
+    const [{ id }] = await as<{ id: string }>(C, 'select id from public.partner_posts where user_id = $1 limit 1', [C]);
+    await as(A, 'delete from public.partner_posts where id = $1', [id]);
+    expect(await as(C, 'select id from public.partner_posts where id = $1', [id])).toHaveLength(1);
+    await as(C, 'delete from public.partner_posts where id = $1', [id]);
+    expect(await as(C, 'select id from public.partner_posts where id = $1', [id])).toEqual([]);
+  });
+
+  it('hides a post after three different reporters, and keeps reports unreadable', async () => {
+    const [{ id }] = await post(D, { kind: 'hangout', body: 'מי בא למסיבה בקוסקו?' });
+    for (const uid of [A, B, A]) await as(uid, 'insert into public.partner_reports (post_id, reason) values ($1, $2) on conflict do nothing', [id, 'spam']);
+    expect(await as(C, 'select id from public.partner_posts_public where id = $1', [id])).toHaveLength(1);
+    await as(C, 'insert into public.partner_reports (post_id, reason) values ($1, $2)', [id, 'spam']);
+    expect(await as(B, 'select id from public.partner_posts_public where id = $1', [id])).toEqual([]);
+    expect(await as(A, 'select * from public.partner_reports')).toEqual([]); // no select policy
+    await expect(as(D, "update public.partner_posts set hidden = false where id = $1", [id])).rejects.toThrow(/permission denied/);
+  });
+});
+
 describe('account deletion', () => {
   it('lets a user delete their account and everything attached, and nobody else', async () => {
     await expect(as(null, 'select public.delete_my_account()')).rejects.toThrow(/permission denied/);
