@@ -7,8 +7,9 @@ import type { CloudBackend, CloudUser, SyncBlob, SyncEntry, SyncKey } from './ty
  *
  * Model: each key carries the time of its last change. The newest side wins per key. On the first
  * sync of an account on a device, lists are merged instead (so data written before signing up is
- * not lost). Known limit: without per-item timestamps, a deletion made on one device can be undone
- * by another device that still has the item and syncs later.
+ * not lost). After that, each device remembers what it last synced (the base): when both this device
+ * and the cloud changed a list since then, the changes are merged item by item against the base, so
+ * additions on both sides are kept and a deletion on either side stays deleted.
  */
 
 export const SYNC_KEYS: SyncKey[] = ['tripPlan', 'checklist', 'journal', 'saved', 'customPlaces'];
@@ -64,7 +65,12 @@ export function unionValue(key: SyncKey, a: unknown, b: unknown): unknown {
     case 'journal': {
       const ja = isObj(a) ? a : {};
       const jb = isObj(b) ? b : {};
-      return { entries: unionById(arr(ja.entries), arr(jb.entries)), expenses: unionById(arr(ja.expenses), arr(jb.expenses)) };
+      const partners = [...new Set([...arr(ja.partners), ...arr(jb.partners)])];
+      return {
+        entries: unionById(arr(ja.entries), arr(jb.entries)),
+        expenses: unionById(arr(ja.expenses), arr(jb.expenses)),
+        ...(partners.length ? { partners } : {}),
+      };
     }
     case 'checklist': {
       const out: Record<string, boolean> = {};
@@ -78,6 +84,75 @@ export function unionValue(key: SyncKey, a: unknown, b: unknown): unknown {
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
+const idOf = (item: unknown) => (isObj(item) ? item.id : item);
+
+/**
+ * Three-way merge of a list against the last synced version: starts from the remote list, drops
+ * what this device deleted, adds what it added, and takes its edits. When both sides edited the
+ * same item, `localWins` decides.
+ */
+function mergeList(base: unknown[], local: unknown[], remote: unknown[], localWins: boolean): unknown[] {
+  const key = (item: unknown) => JSON.stringify(idOf(item));
+  const baseById = new Map(base.map((i) => [key(i), i]));
+  const localById = new Map(local.map((i) => [key(i), i]));
+  const out: unknown[] = [];
+  const seen = new Set<string>();
+  for (const r of remote) {
+    const id = key(r);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const b = baseById.get(id);
+    const l = localById.get(id);
+    if (b !== undefined && l === undefined) {
+      if (same(r, b)) continue; // deleted here, untouched there
+      out.push(r); // deleted here but edited there: keep the edit
+    } else if (l !== undefined && b !== undefined && !same(l, b) && (same(r, b) || localWins)) out.push(l);
+    else if (l !== undefined && b === undefined && localWins) out.push(l);
+    else out.push(r);
+  }
+  for (const l of local) {
+    const id = key(l);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const b = baseById.get(id);
+    // Not in the cloud: new here (keep), or deleted there (drop unless edited here since).
+    if (b === undefined || !same(l, b)) out.push(l);
+  }
+  return out;
+}
+
+/** Merges a key that both this device and the cloud changed since `base`, the last synced value. */
+export function mergeThreeWay(key: SyncKey, base: unknown, local: unknown, remote: unknown, localWins: boolean): unknown {
+  switch (key) {
+    case 'saved':
+    case 'customPlaces':
+      return mergeList(arr(base), arr(local), arr(remote), localWins);
+    case 'journal': {
+      const [jb, jl, jr] = [base, local, remote].map((v) => (isObj(v) ? v : {}));
+      const partners = mergeList(arr(jb.partners), arr(jl.partners), arr(jr.partners), localWins);
+      return {
+        ...(localWins ? { ...jr, ...jl } : { ...jl, ...jr }),
+        entries: mergeList(arr(jb.entries), arr(jl.entries), arr(jr.entries), localWins),
+        expenses: mergeList(arr(jb.expenses), arr(jl.expenses), arr(jr.expenses), localWins),
+        ...(partners.length ? { partners } : { partners: undefined }),
+      };
+    }
+    case 'checklist': {
+      const [cb, cl, cr] = [base, local, remote].map((v) => (isObj(v) ? v : {}));
+      const out: Record<string, boolean> = {};
+      for (const k of new Set([...Object.keys(cl), ...Object.keys(cr)])) {
+        const changedHere = Boolean(cl[k]) !== Boolean(cb[k]);
+        const changedThere = Boolean(cr[k]) !== Boolean(cb[k]);
+        const v = changedHere && (!changedThere || localWins) ? cl[k] : cr[k];
+        if (v) out[k] = true;
+      }
+      return out;
+    }
+    default:
+      return localWins ? local : remote;
+  }
+}
+
 /* ─── Planning (pure) ─── */
 
 export interface PlanResult {
@@ -88,7 +163,14 @@ export interface PlanResult {
   push: boolean;
 }
 
-export function planSync(local: Partial<Record<SyncKey, SyncEntry>>, remote: SyncBlob | null, firstSync: boolean, now: string): PlanResult {
+export function planSync(
+  local: Partial<Record<SyncKey, SyncEntry>>,
+  remote: SyncBlob | null,
+  firstSync: boolean,
+  now: string,
+  /** What this device and the cloud agreed on at the last sync, per key */
+  base: Partial<Record<SyncKey, unknown>> = {},
+): PlanResult {
   const apply: PlanResult['apply'] = {};
   const keys: SyncBlob['keys'] = {};
   let push = false;
@@ -100,6 +182,31 @@ export function planSync(local: Partial<Record<SyncKey, SyncEntry>>, remote: Syn
     const rEmpty = !r || isEmptyValue(key, r.value);
 
     if (lEmpty && rEmpty) continue;
+
+    const b = base[key];
+    if (!firstSync && l && r && b !== undefined) {
+      // We know what both sides held at the last sync, so we know who changed what (clocks aside).
+      const localChanged = !same(l.value, b);
+      const remoteChanged = !same(r.value, b);
+      if (!localChanged && remoteChanged) {
+        keys[key] = r;
+        apply[key] = r.value;
+        continue;
+      }
+      if (localChanged && !remoteChanged) {
+        keys[key] = l.at > r.at ? l : { at: now, value: l.value };
+        push = true;
+        continue;
+      }
+      if (localChanged && remoteChanged && MERGEABLE.includes(key)) {
+        // Both sides changed since the last sync: merge item by item.
+        const value = mergeThreeWay(key, b, l.value, r.value, l.at > r.at);
+        keys[key] = { at: now, value };
+        if (!same(value, l.value)) apply[key] = value;
+        if (!same(value, r.value)) push = true;
+        continue;
+      }
+    }
 
     if (rEmpty) {
       // The cloud has nothing (or was emptied earlier than our data): send ours.
@@ -180,11 +287,19 @@ interface Meta {
   userId?: string;
   at: Partial<Record<SyncKey, string>>;
   hashes: Partial<Record<SyncKey, string>>;
+  /** The value of each key at the last sync, to tell which side changed and to merge lists */
+  base: Partial<Record<SyncKey, unknown>>;
 }
 
 function readMeta(storage: KV): Meta {
   const m = parse(storage.getItem(META_KEY));
-  return isObj(m) ? { userId: typeof m.userId === 'string' ? m.userId : undefined, at: isObj(m.at) ? (m.at as Meta['at']) : {}, hashes: isObj(m.hashes) ? (m.hashes as Meta['hashes']) : {} } : { at: {}, hashes: {} };
+  if (!isObj(m)) return { at: {}, hashes: {}, base: {} };
+  return {
+    userId: typeof m.userId === 'string' ? m.userId : undefined,
+    at: isObj(m.at) ? (m.at as Meta['at']) : {},
+    hashes: isObj(m.hashes) ? (m.hashes as Meta['hashes']) : {},
+    base: isObj(m.base) ? (m.base as Meta['base']) : {},
+  };
 }
 
 /* ─── Engine ─── */
@@ -257,7 +372,7 @@ export function startSync(options: SyncOptions): SyncEngine {
 
     setStatus({ ...status, state: 'syncing', error: undefined });
     const remote = await backend.loadUserData();
-    const plan = planSync(local, remote, firstForAccount, now().toISOString());
+    const plan = planSync(local, remote, firstForAccount, now().toISOString(), firstForAccount ? {} : meta.base);
 
     const applied = Object.keys(plan.apply) as SyncKey[];
     if (applied.length) {
@@ -269,6 +384,9 @@ export function startSync(options: SyncOptions): SyncEngine {
     }
     if (plan.push) await backend.saveUserData(plan.blob);
 
+    // Both sides now hold plan.blob: that is the base for the next merge.
+    meta.base = {};
+    for (const key of SYNC_KEYS) if (plan.blob.keys[key] !== undefined) meta.base[key] = plan.blob.keys[key]!.value;
     meta.userId = user.id;
     storage.setItem(META_KEY, JSON.stringify(meta));
     setStatus({ state: 'idle', lastSyncedAt: now().getTime() });

@@ -8,9 +8,18 @@ import {
   type CloudBackend,
   type CloudReview,
   type CloudUser,
+  type Meetup,
+  type ModKind,
+  type NewPartnerPost,
   type NewReview,
+  type PartnerKind,
+  type PartnerPost,
+  type PartnerReply,
   type SyncBlob,
+  PARTNER_REPLY_MAX,
   cleanTripWindows,
+  validateMeetup,
+  validatePartnerPost,
 } from './types';
 
 interface ErrorLike {
@@ -34,9 +43,16 @@ export function mapSupabaseError(err: unknown): CloudError {
   if (code === 'email_not_confirmed' || message.includes('email not confirmed')) return new CloudError('email_not_confirmed');
   if (code === 'over_request_rate_limit' || code === 'over_email_send_rate_limit' || e.status === 429 || message.includes('rate limit')) return new CloudError('rate_limited');
   if (code === 'validation_failed' && message.includes('email')) return new CloudError('invalid_email');
-  // Row Level Security violations and expired sessions both mean "not allowed as this user".
-  if (code === '42501' || code === 'PGRST301' || code === 'PGRST303' || message.includes('jwt')) return new CloudError('not_signed_in');
+  // An expired session; a Row Level Security refusal while signed in usually means the post or
+  // meetup is no longer open (expired, hidden or deleted since the page loaded).
+  if (code === 'PGRST301' || code === 'PGRST303' || message.includes('jwt')) return new CloudError('not_signed_in');
+  if (code === '42501') return new CloudError('not_allowed', e.message);
+  if (code === '23514' || code === '22007' || code === '22008' || code === '22P02') return new CloudError('invalid_input', e.message);
   if (code === 'P0001' && message.includes('rate limit')) return new CloudError('rate_limited');
+  if (code === 'P0001' && message.includes('partner post limit')) return new CloudError('too_many_posts');
+  if (code === 'P0001' && message.includes('meetup limit')) return new CloudError('too_many_meetups');
+  if (code === 'P0001' && message.includes('meetup date out of range')) return new CloudError('invalid_input', e.message, 'אפשר לקבוע מפגש מהיום ועד חודשיים קדימה.');
+  if (code === 'P0001' && message.startsWith('trip ')) return new CloudError('invalid_input', e.message);
   return new CloudError('unknown', e.message);
 }
 
@@ -58,6 +74,68 @@ interface ReviewRow {
   created_at: string;
   author: string | null;
 }
+
+interface PartnerPostRow {
+  id: string;
+  user_id: string;
+  country_id: string;
+  from_date: string;
+  to_date: string;
+  kind: PartnerKind;
+  body: string;
+  created_at: string;
+  author: string | null;
+}
+
+export const rowToPartnerPost = (r: PartnerPostRow): PartnerPost => ({
+  id: r.id,
+  userId: r.user_id,
+  author: r.author?.trim() || 'מטייל',
+  countryId: r.country_id,
+  from: r.from_date,
+  to: r.to_date,
+  kind: r.kind,
+  text: r.body,
+  createdAt: Date.parse(r.created_at) || 0,
+});
+
+interface MeetupRow {
+  id: string;
+  user_id: string;
+  country_id: string;
+  title: string;
+  body: string | null;
+  place_label: string;
+  lat: number;
+  lng: number;
+  starts_at: string;
+  created_at: string;
+  author: string | null;
+  going?: number | string | null;
+  i_am_going?: boolean | null;
+}
+
+export function rowToMeetup(row: MeetupRow): Meetup {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    countryId: row.country_id,
+    title: row.title,
+    text: row.body ?? '',
+    placeLabel: row.place_label,
+    lat: Number(row.lat),
+    lng: Number(row.lng),
+    startsAt: new Date(row.starts_at).toISOString(),
+    author: row.author?.trim() || 'מטייל',
+    going: Number(row.going) || 0,
+    iAmGoing: row.i_am_going === true,
+    createdAt: Date.parse(row.created_at) || 0,
+  };
+}
+
+const MEETUP_COLUMNS = 'id, user_id, country_id, title, body, place_label, lat, lng, starts_at, created_at, author, going, i_am_going';
+
+const PARTNER_POST_COLUMNS = 'id, user_id, country_id, from_date, to_date, kind, body, created_at, author';
 
 export function rowToReview(row: ReviewRow): CloudReview {
   const cost = row.cost_usd === null || row.cost_usd === undefined ? undefined : Number(row.cost_usd);
@@ -253,6 +331,161 @@ export function createSupabaseBackend(client: SupabaseClient, redirectTo: () => 
         from: r.from_date,
         to: r.to_date,
       }));
+    },
+
+    async listPartnerPosts() {
+      await requireUser();
+      const today = new Date().toISOString().slice(0, 10);
+      const { data, error } = await client
+        .from('partner_posts_public')
+        .select(PARTNER_POST_COLUMNS)
+        .gte('to_date', today)
+        .order('from_date', { ascending: true })
+        .limit(200);
+      if (error) throw mapSupabaseError(error);
+      return ((data ?? []) as PartnerPostRow[]).map(rowToPartnerPost);
+    },
+
+    async createPartnerPost(post: NewPartnerPost) {
+      const user = await requireUser();
+      const problem = validatePartnerPost(post);
+      if (problem) throw new CloudError('invalid_input', problem, problem);
+      const { data, error } = await client
+        .from('partner_posts')
+        .insert({ user_id: user.id, country_id: post.countryId, from_date: post.from, to_date: post.to, kind: post.kind, body: post.text.trim() })
+        .select('id, user_id, country_id, from_date, to_date, kind, body, created_at')
+        .single();
+      if (error) throw mapSupabaseError(error);
+      return rowToPartnerPost({ ...(data as Omit<PartnerPostRow, 'author'>), author: user.displayName });
+    },
+
+    async deletePartnerPost(id) {
+      await requireUser();
+      const { error } = await client.from('partner_posts').delete().eq('id', id);
+      if (error) throw mapSupabaseError(error);
+    },
+
+    async replyToPartnerPost(postId, text) {
+      const user = await requireUser();
+      const body = text.trim().slice(0, PARTNER_REPLY_MAX);
+      const { error } = await client.from('partner_replies').insert({ post_id: postId, user_id: user.id, body });
+      if (error && String(error.code) === '23505') throw new CloudError('already_replied');
+      if (error) throw mapSupabaseError(error);
+    },
+
+    async listPartnerReplies() {
+      await requireUser();
+      const { data, error } = await client
+        .from('partner_replies_public')
+        .select('id, post_id, user_id, body, created_at, author')
+        .order('created_at', { ascending: false })
+        .limit(300);
+      if (error) throw mapSupabaseError(error);
+      return ((data ?? []) as { id: string; post_id: string; user_id: string; body: string; created_at: string; author: string | null }[]).map(
+        (r): PartnerReply => ({
+          id: r.id,
+          postId: r.post_id,
+          userId: r.user_id,
+          author: r.author?.trim() || 'מטייל',
+          text: r.body,
+          createdAt: Date.parse(r.created_at) || 0,
+        }),
+      );
+    },
+
+    async deletePartnerReply(id) {
+      await requireUser();
+      const { error } = await client.from('partner_replies').delete().eq('id', id);
+      if (error) throw mapSupabaseError(error);
+    },
+
+    async reportPartnerPost(id, reason) {
+      const user = await requireUser();
+      const { error } = await client.from('partner_reports').insert({ post_id: id, reporter_id: user.id, reason: reason.slice(0, 500) });
+      // 23505: this user already reported the post – that is fine.
+      if (error && String(error.code) !== '23505') throw mapSupabaseError(error);
+    },
+
+    async listMeetups() {
+      await requireUser();
+      const since = new Date(Date.now() - 12 * 3_600_000).toISOString();
+      const { data, error } = await client.from('meetups_public').select(MEETUP_COLUMNS).gte('starts_at', since).order('starts_at', { ascending: true }).limit(300);
+      if (error) throw mapSupabaseError(error);
+      return ((data ?? []) as MeetupRow[]).map(rowToMeetup);
+    },
+
+    async createMeetup(m) {
+      const user = await requireUser();
+      const problem = validateMeetup(m);
+      if (problem) throw new CloudError('invalid_input', problem, problem);
+      const { data, error } = await client
+        .from('meetups')
+        .insert({
+          user_id: user.id,
+          country_id: m.countryId,
+          title: m.title.trim(),
+          body: m.text.trim(),
+          place_label: m.placeLabel.trim(),
+          lat: m.lat,
+          lng: m.lng,
+          starts_at: m.startsAt,
+        })
+        .select('id, user_id, country_id, title, body, place_label, lat, lng, starts_at, created_at')
+        .single();
+      if (error) throw mapSupabaseError(error);
+      return rowToMeetup({ ...(data as MeetupRow), author: user.displayName, going: 0, i_am_going: false });
+    },
+
+    async deleteMeetup(id) {
+      await requireUser();
+      const { error } = await client.from('meetups').delete().eq('id', id);
+      if (error) throw mapSupabaseError(error);
+    },
+
+    async setGoing(id, going) {
+      const user = await requireUser();
+      const { error } = going
+        ? await client.from('meetup_going').insert({ meetup_id: id, user_id: user.id })
+        : await client.from('meetup_going').delete().eq('meetup_id', id).eq('user_id', user.id);
+      // 23505: already marked as coming – that is fine.
+      if (error && String(error.code) !== '23505') throw mapSupabaseError(error);
+    },
+
+    async reportMeetup(id, reason) {
+      const user = await requireUser();
+      const { error } = await client.from('meetup_reports').insert({ meetup_id: id, reporter_id: user.id, reason: reason.slice(0, 500) });
+      if (error && String(error.code) !== '23505') throw mapSupabaseError(error);
+    },
+
+    async isModerator() {
+      if (!(await backend.getUser())) return false;
+      const { data, error } = await client.rpc('is_moderator');
+      if (error) throw mapSupabaseError(error);
+      return data === true;
+    },
+
+    async moderationQueue() {
+      await requireUser();
+      const { data, error } = await client.rpc('mod_queue');
+      if (error) throw mapSupabaseError(error);
+      type Row = { kind: ModKind; id: string; body: string; author: string | null; subject: string; hidden: boolean; reports: number | string; reasons: string[] | null; created_at: string };
+      return ((data ?? []) as Row[]).map((r) => ({
+        kind: r.kind,
+        id: r.id,
+        text: r.body,
+        author: r.author ?? 'מטייל',
+        subject: r.subject,
+        hidden: r.hidden,
+        reports: Number(r.reports) || 0,
+        reasons: r.reasons ?? [],
+        createdAt: Date.parse(r.created_at),
+      }));
+    },
+
+    async moderate(kind, id, action) {
+      await requireUser();
+      const { error } = await client.rpc('mod_act', { p_kind: kind, p_id: id, p_action: action });
+      if (error) throw mapSupabaseError(error);
     },
   };
 

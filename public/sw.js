@@ -1,5 +1,5 @@
 // Simple offline support: network-first for pages, cache-first for built assets.
-const CACHE = 'trips-app-v1';
+const CACHE = 'trips-app-v2';
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((c) => c.addAll(['./', './index.html', './manifest.webmanifest', './icon.svg'])));
@@ -15,7 +15,10 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const req = event.request;
-  if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return;
+  const url = new URL(req.url);
+  if (req.method !== 'GET' || url.origin !== location.origin) return;
+  // Live Google data is never stored on the device (Google's terms) and must stay fresh.
+  if (url.pathname.startsWith('/api/')) return;
 
   if (req.mode === 'navigate') {
     event.respondWith(

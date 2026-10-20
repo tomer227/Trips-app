@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { describe, expect, it, vi } from 'vitest';
-import { CloudError } from './types';
-import { createSupabaseBackend, mapSupabaseError, rowToReview } from './supabaseBackend';
+import { CloudError, localToday, validateMeetup } from './types';
+import { createSupabaseBackend, mapSupabaseError, rowToMeetup, rowToReview } from './supabaseBackend';
 
 type Result = { data?: unknown; error?: { code?: string; message?: string } | null };
 
@@ -13,7 +13,7 @@ function fakeClient(opts: { results?: Record<string, Result>; auth?: Record<stri
     const entry = { table, ops: [] as [string, unknown[]][] };
     calls.push(entry);
     const builder: Record<string, unknown> = {};
-    for (const op of ['select', 'eq', 'order', 'limit', 'upsert', 'insert', 'update', 'delete', 'maybeSingle', 'single']) {
+    for (const op of ['select', 'eq', 'gte', 'order', 'limit', 'upsert', 'insert', 'update', 'delete', 'maybeSingle', 'single']) {
       builder[op] = (...args: unknown[]) => {
         entry.ops.push([op, args]);
         return builder;
@@ -60,9 +60,11 @@ describe('mapSupabaseError', () => {
     [{ code: 'over_email_send_rate_limit' }, 'rate_limited'],
     [{ status: 429 }, 'rate_limited'],
     [{ name: 'AuthRetryableFetchError', message: 'Failed to fetch' }, 'network'],
-    [{ code: '42501', message: 'new row violates row-level security policy' }, 'not_signed_in'],
+    [{ code: '42501', message: 'new row violates row-level security policy' }, 'not_allowed'],
+    [{ code: '23514', message: 'new row violates check constraint' }, 'invalid_input'],
     [{ code: 'PGRST301', message: 'JWT expired' }, 'not_signed_in'],
     [{ code: 'P0001', message: 'review rate limit reached' }, 'rate_limited'],
+    [{ code: 'P0001', message: 'partner post limit reached' }, 'too_many_posts'],
     [{ code: 'weird', message: 'something' }, 'unknown'],
     [null, 'unknown'],
   ])('maps %j to %s', (input, code) => {
@@ -146,8 +148,9 @@ describe('auth', () => {
   it('publishes the trip and reads fellow travellers through database functions', async () => {
     const { client, raw } = fakeClient({ results: { rpc: { data: [{ display_name: 'יוסי', country_id: 'peru', from_date: '2099-01-01', to_date: '2099-01-09' }], error: null } } });
     const b = createSupabaseBackend(client, REDIRECT);
-    await b.publishTrip([{ countryId: 'peru', from: '2099-01-01', to: '2099-01-31' }, { countryId: 'peru', from: '2099-02-01', to: '2099-01-01' }]);
-    expect(raw.rpc).toHaveBeenCalledWith('set_my_trip', { p_windows: [{ country_id: 'peru', from_date: '2099-01-01', to_date: '2099-01-31' }] });
+    const day = (n: number) => localToday(new Date(Date.now() + n * 86_400_000));
+    await b.publishTrip([{ countryId: 'peru', from: day(10), to: day(40) }, { countryId: 'peru', from: day(41), to: day(10) }]);
+    expect(raw.rpc).toHaveBeenCalledWith('set_my_trip', { p_windows: [{ country_id: 'peru', from_date: day(10), to_date: day(40) }] });
     expect(await b.whoElseThere()).toEqual([{ name: 'יוסי', countryId: 'peru', from: '2099-01-01', to: '2099-01-09' }]);
     expect(raw.rpc).toHaveBeenCalledWith('who_else_there');
   });
@@ -200,11 +203,64 @@ describe('reviews', () => {
     await expect(createSupabaseBackend(dup.client, REDIRECT).reportReview('r1', 'spam')).resolves.toBeUndefined();
 
     const bad = fakeClient({ results: { 'reports.insert': { error: { code: '42501', message: 'rls' } } } });
-    await expect(createSupabaseBackend(bad.client, REDIRECT).reportReview('r1', 'spam')).rejects.toMatchObject({ code: 'not_signed_in' });
+    await expect(createSupabaseBackend(bad.client, REDIRECT).reportReview('r1', 'spam')).rejects.toMatchObject({ code: 'not_allowed' });
   });
 
   it('refuses to write when nobody is signed in', async () => {
     const { client } = fakeClient({ auth: { getSession: vi.fn(async () => ({ data: { session: null }, error: null })) } });
     await expect(createSupabaseBackend(client, REDIRECT).saveReview({ placeId: 'p', stars: 4, text: '', visited: '2026-01', tags: [] })).rejects.toMatchObject({ code: 'not_signed_in' });
+  });
+});
+
+describe('partner board', () => {
+  const row = { id: 'p1', user_id: 'u2', country_id: 'peru', from_date: '2099-03-01', to_date: '2099-03-10', kind: 'trek', body: 'מחפשים שותפים לסלקנטאי', created_at: '2099-01-01T00:00:00Z', author: null };
+
+  it('reads current posts from the public view, soonest first', async () => {
+    const { client, calls } = fakeClient({ results: { 'partner_posts_public.select': { data: [row], error: null } } });
+    const posts = await createSupabaseBackend(client, REDIRECT).listPartnerPosts();
+    expect(posts).toEqual([{ id: 'p1', userId: 'u2', author: 'מטייל', countryId: 'peru', from: '2099-03-01', to: '2099-03-10', kind: 'trek', text: 'מחפשים שותפים לסלקנטאי', createdAt: Date.parse('2099-01-01T00:00:00Z') }]);
+    const ops = calls.find((c) => c.table === 'partner_posts_public')!.ops;
+    expect(ops.find(([o]) => o === 'gte')?.[1][0]).toBe('to_date');
+    expect(ops.find(([o]) => o === 'order')?.[1]).toEqual(['from_date', { ascending: true }]);
+  });
+
+  it('validates before posting and writes the trimmed post for the signed-in user', async () => {
+    const { client, calls } = fakeClient({ results: { 'partner_posts.insert': { data: { ...row, user_id: 'u1' }, error: null } } });
+    const b = createSupabaseBackend(client, REDIRECT);
+    await expect(b.createPartnerPost({ countryId: 'peru', from: '2099-03-01', to: '2099-03-10', kind: 'trek', text: 'קצר' })).rejects.toBeInstanceOf(CloudError);
+    expect(calls).toHaveLength(0);
+    const post = await b.createPartnerPost({ countryId: 'peru', from: '2099-03-01', to: '2099-03-10', kind: 'trek', text: '  מחפשים שותפים לסלקנטאי  ' });
+    expect(writeOp(calls, 'partner_posts', 'insert')?.[0]).toEqual({ user_id: 'u1', country_id: 'peru', from_date: '2099-03-01', to_date: '2099-03-10', kind: 'trek', body: 'מחפשים שותפים לסלקנטאי' });
+    expect(post.author).toBe('דנה');
+  });
+
+  it('reports a second reply to the same post as already_replied, and a repeated report as success', async () => {
+    const dup = { data: null, error: { code: '23505', message: 'duplicate key' } };
+    const { client } = fakeClient({ results: { 'partner_replies.insert': dup, 'partner_reports.insert': dup } });
+    const b = createSupabaseBackend(client, REDIRECT);
+    await expect(b.replyToPartnerPost('p1', 'גם אני')).rejects.toMatchObject({ code: 'already_replied' });
+    await expect(b.reportPartnerPost('p1', 'spam')).resolves.toBeUndefined();
+  });
+
+  it('reads the moderation queue and sends moderator actions through the database functions', async () => {
+    const rows = [{ kind: 'review', id: 'r1', body: 'ספאם', author: null, subject: 'place', hidden: true, reports: '3', reasons: null, created_at: '2026-10-01T00:00:00Z' }];
+    const { client, raw } = fakeClient({ results: { rpc: { data: rows, error: null } } });
+    const b = createSupabaseBackend(client, REDIRECT);
+    expect(await b.moderationQueue()).toEqual([{ kind: 'review', id: 'r1', text: 'ספאם', author: 'מטייל', subject: 'place', hidden: true, reports: 3, reasons: [], createdAt: Date.parse('2026-10-01T00:00:00Z') }]);
+    expect(raw.rpc).toHaveBeenCalledWith('mod_queue');
+    await b.moderate('post', 'p1', 'restore');
+    expect(raw.rpc).toHaveBeenCalledWith('mod_act', { p_kind: 'post', p_id: 'p1', p_action: 'restore' });
+  });
+});
+
+
+describe('meetups', () => {
+  it('validates before writing and maps rows with the head count', async () => {
+    const row = { id: 'm1', user_id: 'u1', country_id: 'peru', title: 'ארוחת שישי', body: null, place_label: 'בית חב״ד', lat: -13.5, lng: -71.9, starts_at: '2099-01-01T18:00:00+00:00', created_at: '2026-10-01T00:00:00Z', author: null, going: '4', i_am_going: true };
+    expect(rowToMeetup(row)).toMatchObject({ id: 'm1', text: '', author: 'מטייל', going: 4, iAmGoing: true, startsAt: '2099-01-01T18:00:00.000Z' });
+    expect(validateMeetup({ countryId: 'peru', title: 'קצר', text: '', placeLabel: 'כאן', lat: 0, lng: 0, startsAt: new Date(Date.now() + 3_600_000).toISOString() })).toMatch(/כותרת/);
+    expect(validateMeetup({ countryId: 'peru', title: 'ארוחת שישי', text: '', placeLabel: 'כאן', lat: 0, lng: 0, startsAt: new Date(Date.now() + 61 * 86_400_000).toISOString() })).toMatch(/חודשיים/);
+    expect(validateMeetup({ countryId: 'peru', title: 'ארוחת שישי', text: '', placeLabel: 'כאן', lat: 0, lng: 0, startsAt: new Date(Date.now() + 3_600_000).toISOString() })).toBeNull();
+    expect(mapSupabaseError({ code: 'P0001', message: 'meetup limit reached' }).code).toBe('too_many_meetups');
   });
 });

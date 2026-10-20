@@ -47,7 +47,7 @@ export default function ChecklistPage() {
           </strong>
           <span>{pct === 100 ? 'מוכנים לטיסה! ✈️' : `${pct}%`}</span>
         </div>
-        <div className="progress" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
+        <div className="progress" role="progressbar" aria-label="התקדמות ברשימה" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
           <div style={{ width: `${pct}%` }} />
         </div>
       </div>

@@ -8,10 +8,19 @@ import {
   type CloudReview,
   type CloudUser,
   type FellowTraveler,
+  type Meetup,
+  type ModItem,
   type NewReview,
+  type PartnerPost,
+  type PartnerReply,
   type SyncBlob,
   type TripWindow,
+  MAX_ACTIVE_PARTNER_POSTS,
+  PARTNER_REPLY_MAX,
   cleanTripWindows,
+  MAX_UPCOMING_MEETUPS,
+  validateMeetup,
+  validatePartnerPost,
   windowsOverlap,
 } from './types';
 
@@ -27,13 +36,21 @@ interface MemState {
   sessionUserId: string | null;
   userData: Record<string, SyncBlob>;
   reviews: (CloudReview & { hidden?: boolean })[];
-  reports: { reviewId: string; reporterId: string; reason: string }[];
+  reports: { reviewId: string; reporterId: string; reason: string; cleared?: boolean }[];
   trips: Record<string, TripWindow[]>;
+  partnerPosts: (PartnerPost & { hidden?: boolean })[];
+  partnerReplies: PartnerReply[];
+  partnerReports: { postId: string; reporterId: string; reason?: string; cleared?: boolean }[];
+  /** User ids that may moderate (tests and VITE_CLOUD=memory set it directly). */
+  moderators: string[];
+  meetups: (Omit<Meetup, 'going' | 'iAmGoing' | 'author'> & { hidden?: boolean })[];
+  going: { meetupId: string; userId: string }[];
+  meetupReports: { meetupId: string; reporterId: string; reason: string; cleared?: boolean }[];
 }
 
 const KEY = 'memory-cloud';
 
-const empty = (): MemState => ({ users: [], sessionUserId: null, userData: {}, reviews: [], reports: [], trips: {} });
+const empty = (): MemState => ({ users: [], sessionUserId: null, userData: {}, reviews: [], reports: [], trips: {}, partnerPosts: [], partnerReplies: [], partnerReports: [], moderators: [], meetups: [], going: [], meetupReports: [] });
 
 /**
  * A complete in-memory stand-in for the cloud, persisted in localStorage so it survives reloads.
@@ -144,6 +161,8 @@ export function createMemoryBackend(storage: Pick<Storage, 'getItem' | 'setItem'
       u.displayName = name.trim();
       // Author names on existing reviews follow the profile, as in the database view.
       for (const r of state.reviews) if (r.userId === u.id) r.author = u.displayName;
+      for (const p of state.partnerPosts) if (p.userId === u.id) p.author = u.displayName;
+      for (const r of state.partnerReplies) if (r.userId === u.id) r.author = u.displayName;
       save();
       emit('USER_UPDATED');
       return toUser(u);
@@ -155,6 +174,9 @@ export function createMemoryBackend(storage: Pick<Storage, 'getItem' | 'setItem'
       state.reviews = state.reviews.filter((r) => r.userId !== u.id);
       delete state.userData[u.id];
       delete state.trips[u.id];
+      const gone = new Set(state.partnerPosts.filter((p) => p.userId === u.id).map((p) => p.id));
+      state.partnerPosts = state.partnerPosts.filter((p) => p.userId !== u.id);
+      state.partnerReplies = state.partnerReplies.filter((r) => r.userId !== u.id && !gone.has(r.postId));
       state.sessionUserId = null;
       save();
       emit('SIGNED_OUT');
@@ -206,7 +228,7 @@ export function createMemoryBackend(storage: Pick<Storage, 'getItem' | 'setItem'
       const u = requireUser();
       if (state.reports.some((r) => r.reviewId === id && r.reporterId === u.id)) return;
       state.reports.push({ reviewId: id, reporterId: u.id, reason });
-      const reporters = new Set(state.reports.filter((r) => r.reviewId === id).map((r) => r.reporterId));
+      const reporters = new Set(state.reports.filter((r) => r.reviewId === id && !r.cleared).map((r) => r.reporterId));
       if (reporters.size >= 3) {
         const review = state.reviews.find((r) => r.id === id);
         if (review) review.hidden = true;
@@ -234,6 +256,181 @@ export function createMemoryBackend(storage: Pick<Storage, 'getItem' | 'setItem'
         for (const w of windows) if (w.to >= today && mine.some((m) => windowsOverlap(m, w))) found.push({ name, ...w });
       }
       return found.sort((a, b) => a.from.localeCompare(b.from));
+    },
+
+    async listPartnerPosts() {
+      requireUser();
+      const today = new Date().toISOString().slice(0, 10);
+      return state.partnerPosts
+        .filter((p) => !p.hidden && p.to >= today)
+        .sort((a, b) => a.from.localeCompare(b.from))
+        .map(({ hidden: _hidden, ...p }) => p);
+    },
+
+    async createPartnerPost(input) {
+      const u = requireUser();
+      const problem = validatePartnerPost(input);
+      if (problem) throw new CloudError('invalid_input', problem, problem);
+      const today = new Date().toISOString().slice(0, 10);
+      if (state.partnerPosts.filter((p) => p.userId === u.id && p.to >= today).length >= MAX_ACTIVE_PARTNER_POSTS) throw new CloudError('too_many_posts');
+      const post: PartnerPost = { ...input, text: input.text.trim(), id: crypto.randomUUID(), userId: u.id, author: u.displayName, createdAt: Date.now() };
+      state.partnerPosts.push(post);
+      save();
+      return post;
+    },
+
+    async deletePartnerPost(id) {
+      const u = requireUser();
+      if (!state.partnerPosts.some((p) => p.id === id && p.userId === u.id)) return;
+      state.partnerPosts = state.partnerPosts.filter((p) => p.id !== id);
+      state.partnerReplies = state.partnerReplies.filter((r) => r.postId !== id);
+      save();
+    },
+
+    async replyToPartnerPost(postId, text) {
+      const u = requireUser();
+      const today = new Date().toISOString().slice(0, 10);
+      const post = state.partnerPosts.find((p) => p.id === postId && !p.hidden && p.to >= today);
+      const body = text.trim().slice(0, PARTNER_REPLY_MAX);
+      if (!post || post.userId === u.id || body.length < 2) throw new CloudError('not_allowed', 'cannot reply');
+      if (state.partnerReplies.some((r) => r.postId === postId && r.userId === u.id)) throw new CloudError('already_replied');
+      state.partnerReplies.push({ id: crypto.randomUUID(), postId, userId: u.id, author: u.displayName, text: body, createdAt: Date.now() });
+      save();
+    },
+
+    async listPartnerReplies() {
+      const u = requireUser();
+      const mine = new Set(state.partnerPosts.filter((p) => p.userId === u.id).map((p) => p.id));
+      return state.partnerReplies.filter((r) => r.userId === u.id || mine.has(r.postId)).sort((a, b) => b.createdAt - a.createdAt);
+    },
+
+    async deletePartnerReply(id) {
+      const u = requireUser();
+      const mine = new Set(state.partnerPosts.filter((p) => p.userId === u.id).map((p) => p.id));
+      state.partnerReplies = state.partnerReplies.filter((r) => !(r.id === id && (r.userId === u.id || mine.has(r.postId))));
+      save();
+    },
+
+    async reportPartnerPost(id, reason) {
+      const u = requireUser();
+      if (state.partnerReports.some((r) => r.postId === id && r.reporterId === u.id)) return;
+      state.partnerReports.push({ postId: id, reporterId: u.id, reason });
+      if (new Set(state.partnerReports.filter((r) => r.postId === id && !r.cleared).map((r) => r.reporterId)).size >= 3) {
+        const post = state.partnerPosts.find((p) => p.id === id);
+        if (post) post.hidden = true;
+      }
+      save();
+    },
+
+    async listMeetups() {
+      const u = requireUser();
+      const since = Date.now() - 12 * 3_600_000;
+      const name = (id: string) => state.users.find((x) => x.id === id)?.displayName ?? 'מטייל';
+      return state.meetups
+        .filter((m) => !m.hidden && Date.parse(m.startsAt) > since)
+        .sort((a, b) => a.startsAt.localeCompare(b.startsAt))
+        .map(({ hidden: _hidden, ...m }) => ({
+          ...m,
+          author: name(m.userId),
+          going: state.going.filter((g) => g.meetupId === m.id).length,
+          iAmGoing: state.going.some((g) => g.meetupId === m.id && g.userId === u.id),
+        }));
+    },
+
+    async createMeetup(input) {
+      const u = requireUser();
+      const problem = validateMeetup(input);
+      if (problem) throw new CloudError('invalid_input', problem, problem);
+      if (state.meetups.filter((m) => m.userId === u.id && Date.parse(m.startsAt) > Date.now() - 12 * 3_600_000).length >= MAX_UPCOMING_MEETUPS) throw new CloudError('too_many_meetups');
+      const meetup = {
+        ...input,
+        title: input.title.trim(),
+        text: input.text.trim(),
+        placeLabel: input.placeLabel.trim(),
+        startsAt: new Date(input.startsAt).toISOString(),
+        id: crypto.randomUUID(),
+        userId: u.id,
+        createdAt: Date.now(),
+      };
+      state.meetups.push(meetup);
+      save();
+      await delay();
+      return { ...meetup, author: u.displayName, going: 0, iAmGoing: false };
+    },
+
+    async deleteMeetup(id) {
+      const u = requireUser();
+      state.meetups = state.meetups.filter((m) => !(m.id === id && m.userId === u.id));
+      state.going = state.going.filter((g) => state.meetups.some((m) => m.id === g.meetupId));
+      save();
+    },
+
+    async setGoing(id, going) {
+      const u = requireUser();
+      state.going = state.going.filter((g) => !(g.meetupId === id && g.userId === u.id));
+      const visible = state.meetups.some((m) => m.id === id && !m.hidden && m.userId !== u.id);
+      if (going && visible) state.going.push({ meetupId: id, userId: u.id });
+      save();
+    },
+
+    async reportMeetup(id, reason) {
+      const u = requireUser();
+      if (state.meetupReports.some((r) => r.meetupId === id && r.reporterId === u.id)) return;
+      state.meetupReports.push({ meetupId: id, reporterId: u.id, reason });
+      if (new Set(state.meetupReports.filter((r) => r.meetupId === id && !r.cleared).map((r) => r.reporterId)).size >= 3) {
+        const m = state.meetups.find((x) => x.id === id);
+        if (m) m.hidden = true;
+      }
+      save();
+    },
+
+    async isModerator() {
+      state = load();
+      const u = current();
+      return !!u && state.moderators.includes(u.id);
+    },
+
+    async moderationQueue() {
+      const u = requireUser();
+      if (!state.moderators.includes(u.id)) throw new CloudError('not_signed_in');
+      const name = (id: string) => state.users.find((x) => x.id === id)?.displayName ?? 'מטייל';
+      const items: ModItem[] = [
+        ...state.reviews.map((r) => {
+          const reps = state.reports.filter((x) => x.reviewId === r.id && !x.cleared);
+          return { kind: 'review' as const, id: r.id, text: r.text, author: name(r.userId), subject: r.placeId, hidden: !!r.hidden, reports: reps.length, reasons: reps.map((x) => x.reason).filter(Boolean), createdAt: r.createdAt };
+        }),
+        ...state.partnerPosts.map((p) => {
+          const reps = state.partnerReports.filter((x) => x.postId === p.id && !x.cleared);
+          return { kind: 'post' as const, id: p.id, text: p.text, author: name(p.userId), subject: p.countryId, hidden: !!p.hidden, reports: reps.length, reasons: reps.map((x) => x.reason ?? '').filter(Boolean), createdAt: p.createdAt };
+        }),
+        ...state.meetups.map((m) => {
+          const reps = state.meetupReports.filter((x) => x.meetupId === m.id && !x.cleared);
+          return { kind: 'meetup' as const, id: m.id, text: `${m.title}\n${m.placeLabel}${m.text ? `\n${m.text}` : ''}`, author: name(m.userId), subject: m.countryId, hidden: !!m.hidden, reports: reps.length, reasons: reps.map((x) => x.reason).filter(Boolean), createdAt: m.createdAt };
+        }),
+      ];
+      return items.filter((i) => i.hidden || i.reports > 0).sort((a, b) => Number(b.hidden) - Number(a.hidden) || b.reports - a.reports || b.createdAt - a.createdAt);
+    },
+
+    async moderate(kind, id, action) {
+      const u = requireUser();
+      if (!state.moderators.includes(u.id)) throw new CloudError('not_signed_in');
+      const list: { id: string; hidden?: boolean }[] = kind === 'review' ? state.reviews : kind === 'post' ? state.partnerPosts : state.meetups;
+      const item = list.find((x) => x.id === id);
+      if (!item) return;
+      if (action === 'delete') {
+        if (kind === 'review') state.reviews = state.reviews.filter((x) => x.id !== id);
+        else if (kind === 'post') state.partnerPosts = state.partnerPosts.filter((x) => x.id !== id);
+        else state.meetups = state.meetups.filter((x) => x.id !== id);
+      } else {
+        item.hidden = action === 'hide';
+        if (action === 'restore') {
+          // Reports are kept (cleared), so the same people cannot report it again, as in the database.
+          if (kind === 'review') for (const x of state.reports) if (x.reviewId === id) x.cleared = true;
+          if (kind === 'post') for (const x of state.partnerReports) if (x.postId === id) x.cleared = true;
+          if (kind === 'meetup') for (const x of state.meetupReports) if (x.meetupId === id) x.cleared = true;
+        }
+      }
+      save();
     },
   };
 }

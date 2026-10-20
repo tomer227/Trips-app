@@ -1,4 +1,4 @@
-# להעלות את האפליקציה לאוויר: 4 שלבים
+# להעלות את האפליקציה לאוויר: 4 שלבים (ועוד שלב 5 רשות)
 
 כל מה שלא דורש את החשבונות שלך כבר מוכן ונבדק. נשארו רק דברים שרק אתה יכול לעשות, כי הם דורשים כניסה לחשבונות שלך.
 בסוף תקבל קישור בצורה `https://<שם-הפרויקט>.web.app`.
@@ -12,7 +12,8 @@
 2. לחץ **+ Create credentials** ואז **API key**. יופיע מפתח חדש. **אל תשלח אותו לאף אחד, גם לא אליי.** תשאיר את החלון פתוח.
 3. לחץ על שם המפתח החדש. תחת **API restrictions** בחר **Restrict key**, סמן רק **Places API (New)** ולחץ **Save**.
 4. באותו עמוד, ליד המפתח **הישן**, לחץ על שלוש הנקודות ואז **Delete**.
-5. מומלץ: [Billing → Budgets & alerts](https://console.cloud.google.com/billing/budgets) → **Create budget**, למשל 20$ בחודש, עם התראה למייל.
+5. **תקרה יומית (חשוב, זה מה שמגן עליך מחשבון גבוה):** פתח את [Places API (New) → Quotas](https://console.cloud.google.com/apis/api/places.googleapis.com/quotas). בכל שורה שכתוב בה **per day**, לחץ על העיפרון, כתוב `3000` ולחץ **Submit**. אם מישהו ינסה להפעיל את החיפוש בלי סוף, Google פשוט יעצור אחרי 3000 בקשות ביום.
+6. מומלץ: [Billing → Budgets & alerts](https://console.cloud.google.com/billing/budgets) → **Create budget**, למשל 20$ בחודש, עם התראה למייל. (התראה רק מודיעה, היא לא עוצרת. את העצירה עושה התקרה מסעיף 5.)
 
 ## שלב 2: Supabase, בשביל חשבונות משתמשים (בערך 5 דקות, אפשר לדלג)
 בלי השלב הזה האתר עובד, רק בלי הרשמה, סנכרון, ביקורות משותפות ו"מי עוד שם".
@@ -48,6 +49,20 @@
 - **Site URL:** הקישור משלב 3.
 - **Redirect URLs → Add URL:** אותו קישור עם `/` בסוף.
 לחץ **Save**.
+
+ומומלץ באותו מקום, כדי להקשות על פריצה לחשבונות:
+- **Authentication → Sign In / Providers → Email:** ודא ש־**Confirm email** מסומן.
+- **Authentication → Policies** (או **Password settings**): **Minimum password length** = 8, וסמן **Prevent use of leaked passwords** אם האפשרות קיימת בחשבון שלך.
+לחץ **Save**.
+
+## שלב 5: להפוך את עצמך למנהל (דקה, רשות)
+כך תוכל לטפל בביקורות ובמודעות שדווחו, ישר מהאפליקציה.
+1. היכנס לאפליקציה והירשם עם האימייל שלך (אם עוד לא נרשמת).
+2. ב־Supabase: **SQL Editor** ואז **New query**. הדבק את השורה הזו, **שים את האימייל שלך במקום** `you@example.com`, ולחץ **Run**:
+   ```
+   insert into public.moderators (user_id) select id from auth.users where email = 'you@example.com';
+   ```
+3. באפליקציה, בעמוד **החשבון שלי**, יופיע כפתור **🛡️ ניהול דיווחים**.
 
 ---
 

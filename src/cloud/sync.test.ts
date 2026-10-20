@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createMemoryBackend } from './memoryBackend';
-import { SYNC_KEYS, isEmptyValue, planSync, readSnapshot, startSync, unionValue, wipeSyncedData, writeSnapshotKeys, type KV } from './sync';
+import { SYNC_KEYS, isEmptyValue, mergeThreeWay, planSync, readSnapshot, startSync, unionValue, wipeSyncedData, writeSnapshotKeys, type KV } from './sync';
 import type { SyncBlob, SyncEntry } from './types';
 import { notifyStorageChange } from '../storage';
 
@@ -25,6 +25,23 @@ const plan = (...countries: string[]) => ({ stops: countries.map((countryId) => 
 const entry = (value: unknown, at: string): SyncEntry => ({ at, value });
 const NOW = '2026-06-01T00:00:00.000Z';
 
+describe('mergeThreeWay', () => {
+  it('merges saved places, checklist and journal partners against the last synced value', () => {
+    expect(mergeThreeWay('saved', ['a', 'b'], ['b', 'c'], ['a', 'b', 'd'], false)).toEqual(['b', 'd', 'c']);
+    expect(mergeThreeWay('checklist', { pass: true, ins: true }, { pass: true, ins: false, sim: true }, { pass: false, ins: true }, false)).toEqual({ sim: true });
+    const j = mergeThreeWay('journal', { entries: [], expenses: [], partners: ['דנה'] }, { entries: [], expenses: [], partners: ['דנה', 'יוסי'] }, { entries: [], expenses: [], partners: [] }, true);
+    expect(j).toMatchObject({ partners: ['יוסי'] });
+  });
+
+  it('keeps an item that was deleted on one side but edited on the other', () => {
+    const base = [{ id: 'x', v: 1 }];
+    expect(mergeThreeWay('customPlaces', base, [], [{ id: 'x', v: 2 }], true)).toEqual([{ id: 'x', v: 2 }]);
+    expect(mergeThreeWay('customPlaces', base, [{ id: 'x', v: 3 }], [], false)).toEqual([{ id: 'x', v: 3 }]);
+    expect(mergeThreeWay('customPlaces', base, [{ id: 'x', v: 3 }], [{ id: 'x', v: 2 }], true)).toEqual([{ id: 'x', v: 3 }]);
+    expect(mergeThreeWay('customPlaces', base, [{ id: 'x', v: 3 }], [{ id: 'x', v: 2 }], false)).toEqual([{ id: 'x', v: 2 }]);
+  });
+});
+
 describe('isEmptyValue', () => {
   it('treats defaults as empty and real content as non-empty', () => {
     expect(isEmptyValue('tripPlan', plan())).toBe(true);
@@ -46,6 +63,11 @@ describe('unionValue', () => {
     expect(unionValue('journal', { entries: [{ id: 'e1' }], expenses: [] }, { entries: [{ id: 'e2' }], expenses: [{ id: 'x1' }] })).toEqual({
       entries: [{ id: 'e1' }, { id: 'e2' }],
       expenses: [{ id: 'x1' }],
+    });
+    expect(unionValue('journal', { entries: [], expenses: [], partners: ['דנה'] }, { entries: [], expenses: [], partners: ['יוסי', 'דנה'] })).toEqual({
+      entries: [],
+      expenses: [],
+      partners: ['דנה', 'יוסי'],
     });
     expect(unionValue('checklist', { a: true, b: false }, { b: true, c: false })).toEqual({ a: true, b: true, c: false });
   });
@@ -142,6 +164,48 @@ describe('sync engine', () => {
     };
     return { backend, device };
   };
+
+  it('keeps additions and deletions from two devices that both changed the journal', async () => {
+    const { backend, device } = await setup();
+    const phone = device();
+    const e = (id: string, title = id) => ({ id, title });
+    phone.storage.setItem('journal', JSON.stringify({ entries: [e('a'), e('b')], expenses: [] }));
+    await phone.engine.syncNow();
+    const laptop = device();
+    await laptop.engine.syncNow();
+
+    // Offline on the phone: delete "a", add "p". On the laptop: add "l", edit "b".
+    phone.storage.setItem('journal', JSON.stringify({ entries: [e('b'), e('p')], expenses: [] }));
+    laptop.storage.setItem('journal', JSON.stringify({ entries: [e('a'), e('b', 'b edited'), e('l')], expenses: [] }));
+    await laptop.engine.syncNow();
+    await phone.engine.syncNow();
+    await laptop.engine.syncNow();
+
+    const want = [e('b', 'b edited'), e('l'), e('p')];
+    expect(phone.storage.json('journal').entries).toEqual(want);
+    expect(laptop.storage.json('journal').entries).toEqual(want);
+    expect((await backend.loadUserData())!.keys.journal!.value).toMatchObject({ entries: want });
+    phone.engine.stop();
+    laptop.engine.stop();
+  });
+
+  it('lets a real change win even when the other device has a later clock', async () => {
+    const { device } = await setup();
+    const phone = device();
+    phone.storage.setItem('trip-plan', JSON.stringify(plan('peru')));
+    await phone.engine.syncNow();
+    const laptop = device();
+    await laptop.engine.syncNow();
+    // The phone's meta says it changed "later" than anything, but the value is what it last synced.
+    const meta = phone.storage.json('sync-meta');
+    phone.storage.setItem('sync-meta', JSON.stringify({ ...meta, at: { ...meta.at, tripPlan: '2999-01-01T00:00:00.000Z' } }));
+    laptop.storage.setItem('trip-plan', JSON.stringify(plan('peru', 'chile')));
+    await laptop.engine.syncNow();
+    await phone.engine.syncNow();
+    expect(phone.storage.json('trip-plan')).toEqual(plan('peru', 'chile'));
+    phone.engine.stop();
+    laptop.engine.stop();
+  });
 
   it('moves data between two devices of the same account', async () => {
     const { backend, device } = await setup();

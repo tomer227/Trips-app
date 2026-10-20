@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import PageHeader from '../components/PageHeader';
 import { useAuth } from '../cloud/AuthContext';
 import { messageOf } from '../cloud/useCloudReviews';
@@ -13,6 +13,19 @@ export default function AccountPage() {
     <>
       <PageHeader title="👤 החשבון שלי" subtitle="התחברו כדי לשמור את הטיול, היומן והצ׳קליסט בענן, ולפרסם ביקורות לקהילה." back={{ href: '#/more', label: 'עוד' }} />
 
+      {auth.linkError && auth.status !== 'in' && (
+        <div className="card notice" role="alert">
+          <strong>{auth.linkError === 'expired' ? 'הקישור מהמייל כבר לא בתוקף' : 'לא הצלחנו להשלים את הפעולה מהקישור'}</strong>
+          <p className="small">
+            {auth.linkError === 'expired'
+              ? 'קישורים מהמייל עובדים פעם אחת ולזמן מוגבל. אם כבר אישרתם את החשבון, פשוט התחברו. אם לא, הירשמו שוב או בקשו קישור חדש לאיפוס סיסמה.'
+              : 'נסו שוב בעוד רגע. אם זה חוזר, בקשו קישור חדש.'}
+          </p>
+          <button className="btn btn-secondary btn-small" onClick={auth.clearLinkError}>
+            הבנתי
+          </button>
+        </div>
+      )}
       {auth.status === 'loading' && <p className="muted">טוען…</p>}
       {auth.status === 'unconfigured' && <Unconfigured />}
       {auth.status === 'out' && (auth.recovering ? <NewPassword /> : <SignedOut />)}
@@ -36,7 +49,7 @@ function Unconfigured() {
     <div className="card">
       <strong>החשבונות עוד לא הופעלו בגרסה הזו</strong>
       <p className="muted small">
-        האפליקציה עובדת במלואה בלי חשבון, והנתונים נשמרים במכשיר. מי שמפעיל את האתר צריך לחבר פרויקט Supabase (ראו docs/SUPABASE_SETUP.md).
+        האפליקציה עובדת במלואה בלי חשבון, והנתונים נשמרים במכשיר. הרשמה וסנכרון יתווספו בקרוב.
       </p>
     </div>
   );
@@ -174,6 +187,18 @@ function SignedIn() {
   const [unsynced, setUnsynced] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [moderator, setModerator] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    backend
+      ?.isModerator()
+      .then((m) => alive && setModerator(m))
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [backend, user?.id]);
 
   if (!user || !backend) return null;
 
@@ -233,6 +258,12 @@ function SignedIn() {
           🔄 סנכרון עכשיו
         </button>
       </div>
+
+      {moderator && (
+        <a className="btn btn-secondary btn-block" href="#/moderation">
+          🛡️ ניהול דיווחים
+        </a>
+      )}
 
       <form className="card form-grid" onSubmit={saveName}>
         <label>

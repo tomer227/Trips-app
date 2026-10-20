@@ -2,6 +2,7 @@ import { countries, getCountry, regions } from '../data/countries';
 import { calcTrip, emptyPlan, formatDuration, formatDateRange, formatUsd, stopWindows, type TravelStyle, type TripPlan } from '../budget';
 import PageHeader from '../components/PageHeader';
 import WhoElseThere from '../components/WhoElseThere';
+import { checkSeason, goodMonths } from '../seasons';
 
 interface Props {
   plan: TripPlan;
@@ -107,6 +108,7 @@ export default function PlanPage({ plan, setPlan }: Props) {
             const c = getCountry(stop.countryId);
             if (!c) return null;
             const cost = totals.perStop[i]?.costUsd ?? 0;
+            const season = windows[i] && checkSeason(c.id, windows[i].from, windows[i].to);
             return (
               <li key={stop.countryId} className="card stop">
                 <span className="stop-num">{i + 1}</span>
@@ -117,6 +119,13 @@ export default function PlanPage({ plan, setPlan }: Props) {
                     {windows[i] && ` · ${formatDateRange(windows[i].from, windows[i].to)}`}
                   </span>
                 </a>
+                {season && season.rating !== 'g' && (
+                  <p className={`season-note season-${season.rating}`}>
+                    {season.rating === 'b' ? '🌧️' : '🌤️'} {season.months.join(', ')}: {season.note}.{' '}
+                    {season.rating === 'b' && goodMonths(c.id).length > 0 && <>הכי טוב: {goodMonths(c.id).join(', ')}.</>}
+                  </p>
+                )}
+                {season?.rating === 'g' && <p className="season-note season-g">☀️ עונה טובה</p>}
                 <div className="stepper" aria-label={`ימים ב${c.name}`}>
                   <button onClick={() => updateDays(i, stop.days - 1)} aria-label="פחות יום">
                     −

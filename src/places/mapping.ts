@@ -66,8 +66,8 @@ export function googleToPlace(raw: GooglePlaceRaw, opts: { category?: GoogleCate
     openNow: typeof raw.currentOpeningHours?.openNow === 'boolean' ? raw.currentOpeningHours.openNow : undefined,
     openingHours: raw.regularOpeningHours?.weekdayDescriptions,
     phone: raw.nationalPhoneNumber,
-    website: raw.websiteUri,
-    googleMapsUri: raw.googleMapsUri,
+    website: webUrl(raw.websiteUri),
+    googleMapsUri: webUrl(raw.googleMapsUri),
     photoName: photo?.name,
     photoAttribution: photo?.authorAttributions?.[0]?.displayName,
     sourceUpdatedAt: opts.fetchedAt,
@@ -103,6 +103,17 @@ export function dedupePlaces(places: Place[]): Place[] {
     kept.push(p);
   }
   return kept;
+}
+
+/** Only http(s) links become clickable, so a "javascript:" or "data:" value can never run in the app. */
+export function webUrl(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' || url.protocol === 'http:' ? url.href : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export function mapGoogleResults(raw: GooglePlaceRaw[] | undefined, opts: { category?: GoogleCategory; fetchedAt?: string } = {}): Place[] {

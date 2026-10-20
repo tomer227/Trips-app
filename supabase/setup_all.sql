@@ -295,3 +295,910 @@ revoke all on function public.set_my_trip(jsonb) from public, anon;
 revoke all on function public.who_else_there() from public, anon;
 grant execute on function public.set_my_trip(jsonb) to authenticated;
 grant execute on function public.who_else_there() to authenticated;
+
+-- ===== 0003_partner_board.sql =====
+-- "מחפשים שותף": a board where signed-in travellers post that they are looking for partners
+-- (a trek, a stretch of the route, a ride, a room to share) and others answer privately.
+-- Run after 0002_who_else_there.sql (SQL Editor → New query → Run).
+--
+-- Privacy and safety model:
+--   * Only signed-in users can read the board. Posts show a display name, never an email.
+--   * A post holds no contact details. Someone who is interested sends a private reply, and only
+--     the post's author and the replier can read it. The replier decides what contact to share.
+--   * Posts disappear from the board after their end date. Three reports hide a post until a
+--     moderator looks at it in the dashboard.
+
+/* ───────────── posts ───────────── */
+
+create table public.partner_posts (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  country_id text not null check (country_id ~ '^[a-z-]{2,40}$'),
+  from_date date not null,
+  to_date date not null,
+  kind text not null check (kind in ('trek', 'route', 'ride', 'room', 'hangout')),
+  body text not null check (char_length(btrim(body)) between 10 and 400),
+  hidden boolean not null default false,
+  created_at timestamptz not null default now(),
+  check (to_date >= from_date and to_date - from_date <= 366)
+);
+
+create index partner_posts_board_idx on public.partner_posts (country_id, to_date) where not hidden;
+create index partner_posts_user_idx on public.partner_posts (user_id);
+
+alter table public.partner_posts enable row level security;
+
+create policy "signed-in users read current posts"
+  on public.partner_posts for select to authenticated
+  using ((not hidden and to_date >= current_date) or user_id = (select auth.uid()));
+
+create policy "users write their own posts"
+  on public.partner_posts for insert to authenticated
+  with check (user_id = (select auth.uid()) and not hidden);
+
+create policy "users delete their own posts"
+  on public.partner_posts for delete to authenticated
+  using (user_id = (select auth.uid()));
+
+-- No update policy: to change a post, delete it and post again.
+
+-- At most 5 current posts and 10 new posts a day per user.
+create function public.partner_posts_limit() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  if (select count(*) from public.partner_posts
+        where user_id = new.user_id and to_date >= current_date) >= 5 then
+    raise exception 'partner post limit reached' using errcode = 'P0001';
+  end if;
+  if (select count(*) from public.partner_posts
+        where user_id = new.user_id and created_at > now() - interval '1 day') >= 10 then
+    raise exception 'partner post rate limit reached' using errcode = 'P0001';
+  end if;
+  return new;
+end $$;
+
+create trigger partner_posts_limit_trg before insert on public.partner_posts
+  for each row execute function public.partner_posts_limit();
+
+-- Posts with the author's display name. security_invoker: the caller's own policies apply.
+create view public.partner_posts_public with (security_invoker = true) as
+  select pp.id, pp.user_id, pp.country_id, pp.from_date, pp.to_date, pp.kind, pp.body, pp.created_at,
+         p.display_name as author
+  from public.partner_posts pp
+  left join public.profiles p on p.id = pp.user_id
+  where not pp.hidden;
+
+/* ───────────── private replies ───────────── */
+
+create table public.partner_replies (
+  id uuid primary key default gen_random_uuid(),
+  post_id uuid not null references public.partner_posts (id) on delete cascade,
+  user_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  body text not null check (char_length(btrim(body)) between 2 and 400),
+  created_at timestamptz not null default now(),
+  unique (post_id, user_id)
+);
+
+create index partner_replies_post_idx on public.partner_replies (post_id);
+
+alter table public.partner_replies enable row level security;
+
+-- True when the signed-in user wrote the post. security definer so the check does not depend on
+-- whether the post is still visible on the board.
+create function public.owns_partner_post(p_post uuid) returns boolean
+language sql stable security definer set search_path = '' as $$
+  select exists (select 1 from public.partner_posts where id = p_post and user_id = auth.uid());
+$$;
+
+revoke all on function public.owns_partner_post(uuid) from public, anon;
+grant execute on function public.owns_partner_post(uuid) to authenticated;
+
+create policy "author and replier read a reply"
+  on public.partner_replies for select to authenticated
+  using (user_id = (select auth.uid()) or public.owns_partner_post(post_id));
+
+-- The subquery runs under the caller's policies, so only posts on the board can be answered.
+create policy "users reply to other people's current posts"
+  on public.partner_replies for insert to authenticated
+  with check (
+    user_id = (select auth.uid())
+    and not public.owns_partner_post(post_id)
+    and exists (select 1 from public.partner_posts pp where pp.id = post_id and not pp.hidden and pp.to_date >= current_date)
+  );
+
+create policy "author or replier delete a reply"
+  on public.partner_replies for delete to authenticated
+  using (user_id = (select auth.uid()) or public.owns_partner_post(post_id));
+
+-- At most 30 replies a day per user.
+create function public.partner_replies_limit() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  if (select count(*) from public.partner_replies
+        where user_id = new.user_id and created_at > now() - interval '1 day') >= 30 then
+    raise exception 'partner reply rate limit reached' using errcode = 'P0001';
+  end if;
+  return new;
+end $$;
+
+create trigger partner_replies_limit_trg before insert on public.partner_replies
+  for each row execute function public.partner_replies_limit();
+
+create view public.partner_replies_public with (security_invoker = true) as
+  select r.id, r.post_id, r.user_id, r.body, r.created_at, p.display_name as author
+  from public.partner_replies r
+  left join public.profiles p on p.id = r.user_id;
+
+/* ───────────── reports ───────────── */
+
+create table public.partner_reports (
+  id uuid primary key default gen_random_uuid(),
+  post_id uuid not null references public.partner_posts (id) on delete cascade,
+  reporter_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  reason text not null default '' check (char_length(reason) <= 500),
+  created_at timestamptz not null default now(),
+  unique (post_id, reporter_id)
+);
+
+alter table public.partner_reports enable row level security;
+
+create policy "users file their own partner reports"
+  on public.partner_reports for insert to authenticated
+  with check (reporter_id = (select auth.uid()));
+-- No select policy: reports are readable only from the Supabase dashboard.
+
+create function public.partner_reports_auto_hide() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  if (select count(distinct reporter_id) from public.partner_reports where post_id = new.post_id) >= 3 then
+    update public.partner_posts set hidden = true where id = new.post_id;
+  end if;
+  return new;
+end $$;
+
+create trigger partner_reports_auto_hide_trg after insert on public.partner_reports
+  for each row execute function public.partner_reports_auto_hide();
+
+/* ───────────── table privileges (defence in depth on top of RLS) ───────────── */
+
+revoke all on public.partner_posts, public.partner_replies, public.partner_reports from anon;
+revoke update on public.partner_posts, public.partner_replies, public.partner_reports from authenticated;
+revoke all on public.partner_posts_public, public.partner_replies_public from anon;
+grant select on public.partner_posts_public, public.partner_replies_public to authenticated;
+
+-- ===== 0004_hardening.sql =====
+-- Security hardening found in the October 2026 review. Run after 0003_partner_board.sql.
+--
+--   1. created_at is always set by the database. Before this, a client could send an old
+--      created_at and slip past the daily limits on reviews, partner posts and replies.
+--   2. At most 20 reports a day per user (reviews and partner posts together), so one person
+--      with a few accounts cannot quietly hide many posts.
+--   3. "מי עוד שם": sharing fake dates in every country is no longer a way to list everyone.
+--      Only future dates count, at most 15 stops and 400 days in total, and at most 30 real
+--      changes a day. Saving the same trip again is free (the app does that on every visit).
+--   4. Trigger and helper functions cannot be called directly through the API.
+
+
+/* ───────────── 1. created_at comes from the server ───────────── */
+
+create function public.force_created_now() returns trigger
+language plpgsql set search_path = '' as $$
+begin
+  new.created_at := now();
+  return new;
+end $$;
+
+-- Named with a leading "a_" so it runs before the other insert triggers on the same table.
+create trigger a_reviews_created_now before insert on public.reviews
+  for each row execute function public.force_created_now();
+create trigger a_reports_created_now before insert on public.reports
+  for each row execute function public.force_created_now();
+create trigger a_trip_windows_created_now before insert on public.trip_windows
+  for each row execute function public.force_created_now();
+create trigger a_partner_posts_created_now before insert on public.partner_posts
+  for each row execute function public.force_created_now();
+create trigger a_partner_replies_created_now before insert on public.partner_replies
+  for each row execute function public.force_created_now();
+create trigger a_partner_reports_created_now before insert on public.partner_reports
+  for each row execute function public.force_created_now();
+
+/* ───────────── 2. report rate limit ───────────── */
+
+create function public.reports_rate_limit() returns trigger
+language plpgsql security definer set search_path = '' as $$
+declare
+  me uuid := new.reporter_id;
+begin
+  if (select count(*) from public.reports where reporter_id = me and created_at > now() - interval '1 day')
+     + (select count(*) from public.partner_reports where reporter_id = me and created_at > now() - interval '1 day') >= 20 then
+    raise exception 'report rate limit reached' using errcode = 'P0001';
+  end if;
+  return new;
+end $$;
+
+create trigger reports_rate_limit_trg before insert on public.reports
+  for each row execute function public.reports_rate_limit();
+create trigger partner_reports_rate_limit_trg before insert on public.partner_reports
+  for each row execute function public.reports_rate_limit();
+
+/* ───────────── 3. "מי עוד שם" limits ───────────── */
+
+create table public.trip_changes (
+  user_id uuid not null references auth.users (id) on delete cascade,
+  changed_at timestamptz not null default now()
+);
+
+create index trip_changes_user_idx on public.trip_changes (user_id, changed_at);
+
+alter table public.trip_changes enable row level security;
+-- No policies: written only by set_my_trip below.
+revoke all on public.trip_changes from anon, authenticated;
+
+create or replace function public.set_my_trip(p_windows jsonb) returns void
+language plpgsql security definer set search_path = '' as $$
+declare
+  me uuid := auth.uid();
+  wanted jsonb;
+  existing jsonb;
+begin
+  if me is null then
+    raise exception 'not signed in';
+  end if;
+  if jsonb_typeof(p_windows) <> 'array' or jsonb_array_length(p_windows) > 30 then
+    raise exception 'invalid trip';
+  end if;
+
+  -- Only stops that have not ended yet matter for matching; past ones are dropped.
+  select coalesce(jsonb_agg(w order by w ->> 'country_id', w ->> 'from_date', w ->> 'to_date'), '[]'::jsonb)
+    into wanted
+    from (
+      select distinct jsonb_build_object(
+               'country_id', x ->> 'country_id',
+               'from_date', greatest((x ->> 'from_date')::date, current_date)::text,
+               'to_date', ((x ->> 'to_date')::date)::text) as w
+      from jsonb_array_elements(p_windows) as x
+      where (x ->> 'to_date')::date >= current_date
+    ) s;
+
+  if jsonb_array_length(wanted) > 15 then
+    raise exception 'too many trip stops' using errcode = 'P0001';
+  end if;
+  if exists (select 1 from jsonb_array_elements(wanted) w where (w ->> 'from_date')::date > current_date + 730) then
+    raise exception 'trip too far ahead' using errcode = 'P0001';
+  end if;
+  if (select coalesce(sum((w ->> 'to_date')::date - (w ->> 'from_date')::date + 1), 0) from jsonb_array_elements(wanted) w) > 400 then
+    raise exception 'trip too long' using errcode = 'P0001';
+  end if;
+
+  select coalesce(jsonb_agg(w order by w ->> 'country_id', w ->> 'from_date', w ->> 'to_date'), '[]'::jsonb)
+    into existing
+    from (
+      select jsonb_build_object('country_id', country_id, 'from_date', greatest(from_date, current_date)::text, 'to_date', to_date::text) as w
+      from public.trip_windows
+      where user_id = me and to_date >= current_date
+    ) s;
+
+  if wanted = existing then
+    return;
+  end if;
+
+  if (select count(*) from public.trip_changes where user_id = me and changed_at > now() - interval '1 day') >= 30 then
+    raise exception 'trip change rate limit reached' using errcode = 'P0001';
+  end if;
+  insert into public.trip_changes (user_id) values (me);
+  delete from public.trip_changes where user_id = me and changed_at < now() - interval '2 days';
+
+  delete from public.trip_windows where user_id = me;
+  insert into public.trip_windows (user_id, country_id, from_date, to_date)
+    select me, w ->> 'country_id', (w ->> 'from_date')::date, (w ->> 'to_date')::date
+    from jsonb_array_elements(wanted) as w;
+end $$;
+
+revoke all on function public.set_my_trip(jsonb) from public, anon;
+grant execute on function public.set_my_trip(jsonb) to authenticated;
+
+/* ───────────── 4. functions are not part of the API ───────────── */
+
+revoke all on function public.force_created_now() from public, anon, authenticated;
+revoke all on function public.touch_updated_at() from public, anon, authenticated;
+revoke all on function public.handle_new_user() from public, anon, authenticated;
+revoke all on function public.reviews_guard() from public, anon, authenticated;
+revoke all on function public.reviews_rate_limit() from public, anon, authenticated;
+revoke all on function public.reports_auto_hide() from public, anon, authenticated;
+revoke all on function public.reports_rate_limit() from public, anon, authenticated;
+revoke all on function public.partner_posts_limit() from public, anon, authenticated;
+revoke all on function public.partner_replies_limit() from public, anon, authenticated;
+revoke all on function public.partner_reports_auto_hide() from public, anon, authenticated;
+
+-- ===== 0005_moderation.sql =====
+-- Moderation screen in the app (#/moderation), instead of editing tables in the dashboard.
+-- Run after 0004_hardening.sql.
+--
+-- Moderators are listed in public.moderators, which only the dashboard can change. To make yourself
+-- a moderator, run once in the SQL Editor (with your own email):
+--   insert into public.moderators (user_id) select id from auth.users where email = 'you@example.com';
+--
+-- A moderator sees reported or hidden reviews and partner posts, with the report reasons, and can
+-- restore (and clear the reports), keep hidden, or delete. Reporters' identities are never shown.
+
+create table public.moderators (
+  user_id uuid primary key references auth.users (id) on delete cascade,
+  added_at timestamptz not null default now()
+);
+
+alter table public.moderators enable row level security;
+-- No policies: changed only from the dashboard, read only through is_moderator().
+revoke all on public.moderators from anon, authenticated;
+
+create function public.is_moderator() returns boolean
+language sql stable security definer set search_path = '' as $$
+  select exists (select 1 from public.moderators where user_id = auth.uid());
+$$;
+
+-- Everything waiting for a moderator: hidden or reported reviews and partner posts.
+create function public.mod_queue()
+returns table (kind text, id uuid, body text, author text, subject text, hidden boolean, reports bigint, reasons text[], created_at timestamptz)
+language plpgsql stable security definer set search_path = '' as $$
+begin
+  if not public.is_moderator() then
+    raise exception 'not a moderator' using errcode = '42501';
+  end if;
+  return query
+    select q.* from (
+      select 'review'::text, r.id, r.body, p.display_name, r.place_id, r.hidden, count(rep.id),
+             coalesce(array_agg(rep.reason) filter (where rep.reason <> ''), '{}'), r.created_at
+      from public.reviews r
+      left join public.profiles p on p.id = r.user_id
+      left join public.reports rep on rep.review_id = r.id
+      group by r.id, p.display_name
+      having r.hidden or count(rep.id) > 0
+      union all
+      select 'post'::text, pp.id, pp.body, p.display_name, pp.country_id, pp.hidden, count(rep.id),
+             coalesce(array_agg(rep.reason) filter (where rep.reason <> ''), '{}'), pp.created_at
+      from public.partner_posts pp
+      left join public.profiles p on p.id = pp.user_id
+      left join public.partner_reports rep on rep.post_id = pp.id
+      group by pp.id, p.display_name
+      having pp.hidden or count(rep.id) > 0
+    ) as q (kind, id, body, author, subject, hidden, reports, reasons, created_at)
+    order by q.hidden desc, q.reports desc, q.created_at desc
+    limit 200;
+end $$;
+
+-- p_action: 'restore' (show again and clear its reports), 'hide', or 'delete'.
+create function public.mod_act(p_kind text, p_id uuid, p_action text) returns void
+language plpgsql security definer set search_path = '' as $$
+begin
+  if not public.is_moderator() then
+    raise exception 'not a moderator' using errcode = '42501';
+  end if;
+  if p_kind = 'review' then
+    if p_action = 'restore' then
+      delete from public.reports where review_id = p_id;
+      update public.reviews set hidden = false where id = p_id;
+    elsif p_action = 'hide' then
+      update public.reviews set hidden = true where id = p_id;
+    elsif p_action = 'delete' then
+      delete from public.reviews where id = p_id;
+    else
+      raise exception 'invalid action';
+    end if;
+  elsif p_kind = 'post' then
+    if p_action = 'restore' then
+      delete from public.partner_reports where post_id = p_id;
+      update public.partner_posts set hidden = false where id = p_id;
+    elsif p_action = 'hide' then
+      update public.partner_posts set hidden = true where id = p_id;
+    elsif p_action = 'delete' then
+      delete from public.partner_posts where id = p_id;
+    else
+      raise exception 'invalid action';
+    end if;
+  else
+    raise exception 'invalid kind';
+  end if;
+end $$;
+
+revoke all on function public.is_moderator() from public, anon;
+revoke all on function public.mod_queue() from public, anon;
+revoke all on function public.mod_act(text, uuid, text) from public, anon;
+grant execute on function public.is_moderator() to authenticated;
+grant execute on function public.mod_queue() to authenticated;
+grant execute on function public.mod_act(text, uuid, text) to authenticated;
+
+-- ===== 0006_meetups.sql =====
+-- "מפגשים על המפה": signed-in travellers pin a meetup (Friday dinner, a hike, a night out) at a
+-- public spot, with a date and time. Others see it on the map and can say they are coming.
+-- Run after 0005_moderation.sql.
+--
+-- Privacy and safety model:
+--   * Only signed-in users see meetups, like the partner board. The app asks for a public spot.
+--   * A meetup shows the organiser's display name and how many are coming, never who.
+--   * Meetups disappear 12 hours after they start. Three reports hide one until a moderator looks.
+
+/* ───────────── meetups ───────────── */
+
+create table public.meetups (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  country_id text not null check (country_id ~ '^[a-z-]{2,40}$'),
+  title text not null check (char_length(btrim(title)) between 4 and 80),
+  body text not null default '' check (char_length(body) <= 400),
+  place_label text not null check (char_length(btrim(place_label)) between 2 and 60),
+  lat double precision not null check (lat between -90 and 90),
+  lng double precision not null check (lng between -180 and 180),
+  starts_at timestamptz not null,
+  hidden boolean not null default false,
+  created_at timestamptz not null default now()
+);
+
+create index meetups_board_idx on public.meetups (starts_at) where not hidden;
+create index meetups_user_idx on public.meetups (user_id);
+
+alter table public.meetups enable row level security;
+
+create policy "signed-in users read upcoming meetups"
+  on public.meetups for select to authenticated
+  using ((not hidden and starts_at > now() - interval '12 hours') or user_id = (select auth.uid()));
+
+create policy "users create their own meetups"
+  on public.meetups for insert to authenticated
+  with check (user_id = (select auth.uid()) and not hidden);
+
+create policy "users delete their own meetups"
+  on public.meetups for delete to authenticated
+  using (user_id = (select auth.uid()));
+
+create trigger a_meetups_created_now before insert on public.meetups
+  for each row execute function public.force_created_now();
+
+-- Starts within the next 60 days; at most 3 upcoming meetups and 10 new ones a day per user.
+create function public.meetups_limit() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  if new.starts_at < now() - interval '1 hour' or new.starts_at > now() + interval '60 days' then
+    raise exception 'meetup date out of range' using errcode = 'P0001';
+  end if;
+  if (select count(*) from public.meetups where user_id = new.user_id and starts_at > now()) >= 3 then
+    raise exception 'meetup limit reached' using errcode = 'P0001';
+  end if;
+  if (select count(*) from public.meetups where user_id = new.user_id and created_at > now() - interval '1 day') >= 10 then
+    raise exception 'meetup rate limit reached' using errcode = 'P0001';
+  end if;
+  return new;
+end $$;
+
+create trigger meetups_limit_trg before insert on public.meetups
+  for each row execute function public.meetups_limit();
+
+/* ───────────── "I'm coming" ───────────── */
+
+create table public.meetup_going (
+  meetup_id uuid not null references public.meetups (id) on delete cascade,
+  user_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (meetup_id, user_id)
+);
+
+alter table public.meetup_going enable row level security;
+
+-- You see only your own "coming" rows; counts come from the view below.
+create policy "users read their own going"
+  on public.meetup_going for select to authenticated
+  using (user_id = (select auth.uid()));
+
+create policy "users say they are coming to visible meetups"
+  on public.meetup_going for insert to authenticated
+  with check (
+    user_id = (select auth.uid())
+    and exists (select 1 from public.meetups m where m.id = meetup_id and not m.hidden and m.starts_at > now() - interval '12 hours')
+  );
+
+create policy "users take back their going"
+  on public.meetup_going for delete to authenticated
+  using (user_id = (select auth.uid()));
+
+-- How many are coming, without revealing who. security definer so others' rows are counted.
+create function public.meetup_going_count(p_meetup uuid) returns bigint
+language sql stable security definer set search_path = '' as $$
+  select count(*) from public.meetup_going where meetup_id = p_meetup;
+$$;
+
+revoke all on function public.meetup_going_count(uuid) from public, anon;
+grant execute on function public.meetup_going_count(uuid) to authenticated;
+
+-- Meetups with the organiser's name, the head count and whether the caller is coming.
+create view public.meetups_public with (security_invoker = true) as
+  select m.id, m.user_id, m.country_id, m.title, m.body, m.place_label, m.lat, m.lng, m.starts_at, m.created_at,
+         p.display_name as author,
+         public.meetup_going_count(m.id) as going,
+         exists (select 1 from public.meetup_going g where g.meetup_id = m.id and g.user_id = (select auth.uid())) as i_am_going
+  from public.meetups m
+  left join public.profiles p on p.id = m.user_id
+  where not m.hidden;
+
+/* ───────────── reports ───────────── */
+
+create table public.meetup_reports (
+  id uuid primary key default gen_random_uuid(),
+  meetup_id uuid not null references public.meetups (id) on delete cascade,
+  reporter_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  reason text not null default '' check (char_length(reason) <= 500),
+  created_at timestamptz not null default now(),
+  unique (meetup_id, reporter_id)
+);
+
+alter table public.meetup_reports enable row level security;
+
+create policy "users file their own meetup reports"
+  on public.meetup_reports for insert to authenticated
+  with check (reporter_id = (select auth.uid()));
+
+create trigger a_meetup_reports_created_now before insert on public.meetup_reports
+  for each row execute function public.force_created_now();
+
+create function public.meetup_reports_auto_hide() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  if (select count(distinct reporter_id) from public.meetup_reports where meetup_id = new.meetup_id) >= 3 then
+    update public.meetups set hidden = true where id = new.meetup_id;
+  end if;
+  return new;
+end $$;
+
+create trigger meetup_reports_auto_hide_trg after insert on public.meetup_reports
+  for each row execute function public.meetup_reports_auto_hide();
+
+-- The daily report limit now counts meetup reports too.
+create or replace function public.reports_rate_limit() returns trigger
+language plpgsql security definer set search_path = '' as $$
+declare
+  me uuid := new.reporter_id;
+begin
+  if (select count(*) from public.reports where reporter_id = me and created_at > now() - interval '1 day')
+     + (select count(*) from public.partner_reports where reporter_id = me and created_at > now() - interval '1 day')
+     + (select count(*) from public.meetup_reports where reporter_id = me and created_at > now() - interval '1 day') >= 20 then
+    raise exception 'report rate limit reached' using errcode = 'P0001';
+  end if;
+  return new;
+end $$;
+
+create trigger meetup_reports_rate_limit_trg before insert on public.meetup_reports
+  for each row execute function public.reports_rate_limit();
+
+/* ───────────── moderation covers meetups ───────────── */
+
+create or replace function public.mod_queue()
+returns table (kind text, id uuid, body text, author text, subject text, hidden boolean, reports bigint, reasons text[], created_at timestamptz)
+language plpgsql stable security definer set search_path = '' as $$
+begin
+  if not public.is_moderator() then
+    raise exception 'not a moderator' using errcode = '42501';
+  end if;
+  return query
+    select q.* from (
+      select 'review'::text, r.id, r.body, p.display_name, r.place_id, r.hidden, count(rep.id),
+             coalesce(array_agg(rep.reason) filter (where rep.reason <> ''), '{}'), r.created_at
+      from public.reviews r
+      left join public.profiles p on p.id = r.user_id
+      left join public.reports rep on rep.review_id = r.id
+      group by r.id, p.display_name
+      having r.hidden or count(rep.id) > 0
+      union all
+      select 'post'::text, pp.id, pp.body, p.display_name, pp.country_id, pp.hidden, count(rep.id),
+             coalesce(array_agg(rep.reason) filter (where rep.reason <> ''), '{}'), pp.created_at
+      from public.partner_posts pp
+      left join public.profiles p on p.id = pp.user_id
+      left join public.partner_reports rep on rep.post_id = pp.id
+      group by pp.id, p.display_name
+      having pp.hidden or count(rep.id) > 0
+      union all
+      select 'meetup'::text, m.id, m.title || E'\n' || m.place_label || case when m.body <> '' then E'\n' || m.body else '' end,
+             p.display_name, m.country_id, m.hidden, count(rep.id),
+             coalesce(array_agg(rep.reason) filter (where rep.reason <> ''), '{}'), m.created_at
+      from public.meetups m
+      left join public.profiles p on p.id = m.user_id
+      left join public.meetup_reports rep on rep.meetup_id = m.id
+      group by m.id, p.display_name
+      having m.hidden or count(rep.id) > 0
+    ) as q (kind, id, body, author, subject, hidden, reports, reasons, created_at)
+    order by q.hidden desc, q.reports desc, q.created_at desc
+    limit 200;
+end $$;
+
+create or replace function public.mod_act(p_kind text, p_id uuid, p_action text) returns void
+language plpgsql security definer set search_path = '' as $$
+begin
+  if not public.is_moderator() then
+    raise exception 'not a moderator' using errcode = '42501';
+  end if;
+  if p_action not in ('restore', 'hide', 'delete') then
+    raise exception 'invalid action';
+  end if;
+  if p_kind = 'review' then
+    if p_action = 'restore' then
+      delete from public.reports where review_id = p_id;
+      update public.reviews set hidden = false where id = p_id;
+    elsif p_action = 'hide' then
+      update public.reviews set hidden = true where id = p_id;
+    else
+      delete from public.reviews where id = p_id;
+    end if;
+  elsif p_kind = 'post' then
+    if p_action = 'restore' then
+      delete from public.partner_reports where post_id = p_id;
+      update public.partner_posts set hidden = false where id = p_id;
+    elsif p_action = 'hide' then
+      update public.partner_posts set hidden = true where id = p_id;
+    else
+      delete from public.partner_posts where id = p_id;
+    end if;
+  elsif p_kind = 'meetup' then
+    if p_action = 'restore' then
+      delete from public.meetup_reports where meetup_id = p_id;
+      update public.meetups set hidden = false where id = p_id;
+    elsif p_action = 'hide' then
+      update public.meetups set hidden = true where id = p_id;
+    else
+      delete from public.meetups where id = p_id;
+    end if;
+  else
+    raise exception 'invalid kind';
+  end if;
+end $$;
+
+/* ───────────── privileges ───────────── */
+
+revoke all on public.meetups, public.meetup_going, public.meetup_reports, public.meetups_public from anon;
+revoke update on public.meetups, public.meetup_going, public.meetup_reports from authenticated;
+grant select on public.meetups_public to authenticated;
+revoke all on function public.meetups_limit() from public, anon, authenticated;
+revoke all on function public.meetup_reports_auto_hide() from public, anon, authenticated;
+revoke all on function public.reports_rate_limit() from public, anon, authenticated;
+revoke all on function public.mod_queue() from public, anon;
+revoke all on function public.mod_act(text, uuid, text) from public, anon;
+grant execute on function public.mod_queue() to authenticated;
+grant execute on function public.mod_act(text, uuid, text) to authenticated;
+
+-- ===== 0007_review_fixes.sql =====
+-- Fixes from a security review of 0004–0006. Run after 0006_meetups.sql.
+--
+--   * Daily limits count an append-only log, so creating and deleting again does not get around them.
+--   * A moderator's "restore" keeps the reports (marked cleared) instead of deleting them, so the same
+--     three accounts cannot report the item again and hide it straight away.
+--   * The "3 upcoming meetups" cap counts every meetup still on the board (until 12 h after it starts).
+--   * Organisers cannot add themselves to "coming", and the head count is only for visible meetups.
+--   * A review cannot be moved to another place by editing it.
+
+/* ───────────── append-only activity log for daily limits ───────────── */
+
+create table public.activity_log (
+  user_id uuid not null references auth.users (id) on delete cascade,
+  kind text not null,
+  at timestamptz not null default now()
+);
+
+create index activity_log_idx on public.activity_log (user_id, kind, at);
+
+alter table public.activity_log enable row level security;
+-- No policies: written and read only by the limit functions below.
+revoke all on public.activity_log from anon, authenticated;
+
+-- Records one action and fails when the user already did `p_max` of this kind in the last day.
+-- Runs inside the insert's transaction, so a failed insert leaves no log row.
+create function public.log_activity(p_user uuid, p_kind text, p_max int, p_message text) returns void
+language plpgsql security definer set search_path = '' as $$
+begin
+  if (select count(*) from public.activity_log where user_id = p_user and kind = p_kind and at > now() - interval '1 day') >= p_max then
+    raise exception '%', p_message using errcode = 'P0001';
+  end if;
+  insert into public.activity_log (user_id, kind) values (p_user, p_kind);
+end $$;
+
+create or replace function public.reviews_rate_limit() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  perform public.log_activity(new.user_id, 'review', 30, 'review rate limit reached');
+  return new;
+end $$;
+
+create or replace function public.partner_posts_limit() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  if (select count(*) from public.partner_posts
+        where user_id = new.user_id and to_date >= current_date) >= 5 then
+    raise exception 'partner post limit reached' using errcode = 'P0001';
+  end if;
+  perform public.log_activity(new.user_id, 'partner_post', 10, 'partner post rate limit reached');
+  return new;
+end $$;
+
+create or replace function public.partner_replies_limit() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  perform public.log_activity(new.user_id, 'partner_reply', 30, 'partner reply rate limit reached');
+  return new;
+end $$;
+
+create or replace function public.meetups_limit() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  if new.starts_at < now() - interval '1 hour' or new.starts_at > now() + interval '60 days' then
+    raise exception 'meetup date out of range' using errcode = 'P0001';
+  end if;
+  -- Everything still on the board counts, including meetups that started in the last 12 hours.
+  if (select count(*) from public.meetups where user_id = new.user_id and starts_at > now() - interval '12 hours') >= 3 then
+    raise exception 'meetup limit reached' using errcode = 'P0001';
+  end if;
+  perform public.log_activity(new.user_id, 'meetup', 10, 'meetup rate limit reached');
+  return new;
+end $$;
+
+/* ───────────── reports survive a restore ───────────── */
+
+alter table public.reports add column cleared boolean not null default false;
+alter table public.partner_reports add column cleared boolean not null default false;
+alter table public.meetup_reports add column cleared boolean not null default false;
+
+create or replace function public.reports_auto_hide() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  if (select count(distinct reporter_id) from public.reports where review_id = new.review_id and not cleared) >= 3 then
+    update public.reviews set hidden = true where id = new.review_id;
+  end if;
+  return new;
+end $$;
+
+create or replace function public.partner_reports_auto_hide() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  if (select count(distinct reporter_id) from public.partner_reports where post_id = new.post_id and not cleared) >= 3 then
+    update public.partner_posts set hidden = true where id = new.post_id;
+  end if;
+  return new;
+end $$;
+
+create or replace function public.meetup_reports_auto_hide() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  if (select count(distinct reporter_id) from public.meetup_reports where meetup_id = new.meetup_id and not cleared) >= 3 then
+    update public.meetups set hidden = true where id = new.meetup_id;
+  end if;
+  return new;
+end $$;
+
+-- Only open (not cleared) reports count and are shown.
+create or replace function public.mod_queue()
+returns table (kind text, id uuid, body text, author text, subject text, hidden boolean, reports bigint, reasons text[], created_at timestamptz)
+language plpgsql stable security definer set search_path = '' as $$
+begin
+  if not public.is_moderator() then
+    raise exception 'not a moderator' using errcode = '42501';
+  end if;
+  return query
+    select q.* from (
+      select 'review'::text, r.id, r.body, p.display_name, r.place_id, r.hidden, count(rep.id),
+             coalesce(array_agg(rep.reason) filter (where rep.reason <> ''), '{}'), r.created_at
+      from public.reviews r
+      left join public.profiles p on p.id = r.user_id
+      left join public.reports rep on rep.review_id = r.id and not rep.cleared
+      group by r.id, p.display_name
+      having r.hidden or count(rep.id) > 0
+      union all
+      select 'post'::text, pp.id, pp.body, p.display_name, pp.country_id, pp.hidden, count(rep.id),
+             coalesce(array_agg(rep.reason) filter (where rep.reason <> ''), '{}'), pp.created_at
+      from public.partner_posts pp
+      left join public.profiles p on p.id = pp.user_id
+      left join public.partner_reports rep on rep.post_id = pp.id and not rep.cleared
+      group by pp.id, p.display_name
+      having pp.hidden or count(rep.id) > 0
+      union all
+      select 'meetup'::text, m.id, m.title || E'\n' || m.place_label || case when m.body <> '' then E'\n' || m.body else '' end,
+             p.display_name, m.country_id, m.hidden, count(rep.id),
+             coalesce(array_agg(rep.reason) filter (where rep.reason <> ''), '{}'), m.created_at
+      from public.meetups m
+      left join public.profiles p on p.id = m.user_id
+      left join public.meetup_reports rep on rep.meetup_id = m.id and not rep.cleared
+      group by m.id, p.display_name
+      having m.hidden or count(rep.id) > 0
+    ) as q (kind, id, body, author, subject, hidden, reports, reasons, created_at)
+    order by q.hidden desc, q.reports desc, q.created_at desc
+    limit 200;
+end $$;
+
+-- "restore" now clears the reports instead of deleting them; the earlier reporters cannot report again.
+create or replace function public.mod_act(p_kind text, p_id uuid, p_action text) returns void
+language plpgsql security definer set search_path = '' as $$
+begin
+  if not public.is_moderator() then
+    raise exception 'not a moderator' using errcode = '42501';
+  end if;
+  if p_action not in ('restore', 'hide', 'delete') then
+    raise exception 'invalid action';
+  end if;
+  if p_kind = 'review' then
+    if p_action = 'restore' then
+      update public.reports set cleared = true where review_id = p_id;
+      update public.reviews set hidden = false where id = p_id;
+    elsif p_action = 'hide' then
+      update public.reviews set hidden = true where id = p_id;
+    else
+      delete from public.reviews where id = p_id;
+    end if;
+  elsif p_kind = 'post' then
+    if p_action = 'restore' then
+      update public.partner_reports set cleared = true where post_id = p_id;
+      update public.partner_posts set hidden = false where id = p_id;
+    elsif p_action = 'hide' then
+      update public.partner_posts set hidden = true where id = p_id;
+    else
+      delete from public.partner_posts where id = p_id;
+    end if;
+  elsif p_kind = 'meetup' then
+    if p_action = 'restore' then
+      update public.meetup_reports set cleared = true where meetup_id = p_id;
+      update public.meetups set hidden = false where id = p_id;
+    elsif p_action = 'hide' then
+      update public.meetups set hidden = true where id = p_id;
+    else
+      delete from public.meetups where id = p_id;
+    end if;
+  else
+    raise exception 'invalid kind';
+  end if;
+end $$;
+
+/* ───────────── meetups: "coming" ───────────── */
+
+drop policy "users say they are coming to visible meetups" on public.meetup_going;
+create policy "users say they are coming to visible meetups"
+  on public.meetup_going for insert to authenticated
+  with check (
+    user_id = (select auth.uid())
+    and exists (
+      select 1 from public.meetups m
+      where m.id = meetup_id and not m.hidden and m.starts_at > now() - interval '12 hours' and m.user_id <> (select auth.uid())
+    )
+  );
+
+create or replace function public.meetup_going_count(p_meetup uuid) returns bigint
+language sql stable security definer set search_path = '' as $$
+  select count(*) from public.meetup_going g
+  where g.meetup_id = p_meetup
+    and exists (select 1 from public.meetups m where m.id = p_meetup and not m.hidden and m.starts_at > now() - interval '12 hours');
+$$;
+
+/* ───────────── reviews stay on their place ───────────── */
+
+create or replace function public.reviews_guard() returns trigger
+language plpgsql set search_path = '' as $$
+begin
+  if tg_op = 'UPDATE' then
+    new.user_id := old.user_id;
+    new.place_id := old.place_id;
+    new.created_at := old.created_at;
+    if current_user in ('anon', 'authenticated') then
+      new.hidden := old.hidden;
+    end if;
+  end if;
+  new.updated_at := now();
+  return new;
+end $$;
+
+/* ───────────── privileges ───────────── */
+
+revoke all on function public.log_activity(uuid, text, int, text) from public, anon, authenticated;
+revoke all on function public.reviews_rate_limit() from public, anon, authenticated;
+revoke all on function public.partner_posts_limit() from public, anon, authenticated;
+revoke all on function public.partner_replies_limit() from public, anon, authenticated;
+revoke all on function public.meetups_limit() from public, anon, authenticated;
+revoke all on function public.reports_auto_hide() from public, anon, authenticated;
+revoke all on function public.partner_reports_auto_hide() from public, anon, authenticated;
+revoke all on function public.meetup_reports_auto_hide() from public, anon, authenticated;
+revoke all on function public.reviews_guard() from public, anon, authenticated;
+revoke all on function public.mod_queue() from public, anon;
+revoke all on function public.mod_act(text, uuid, text) from public, anon;
+grant execute on function public.mod_queue() to authenticated;
+grant execute on function public.mod_act(text, uuid, text) to authenticated;
+revoke all on function public.meetup_going_count(uuid) from public, anon;
+grant execute on function public.meetup_going_count(uuid) to authenticated;
