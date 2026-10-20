@@ -68,11 +68,11 @@ export default function ModerationPage() {
       {view.state === 'ok' && view.items.length > 0 && (
         <ul className="mod-list">
           {view.items.map((item) => {
-            const country = item.kind === 'post' ? getCountry(item.subject) : undefined;
+            const country = item.kind !== 'review' ? getCountry(item.subject) : undefined;
             return (
               <li key={`${item.kind}-${item.id}`} className={`card mod-item ${item.hidden ? 'is-hidden' : ''}`}>
                 <p className="mod-meta muted small">
-                  {item.kind === 'review' ? '⭐ ביקורת' : '🤝 מודעת שותפים'} · {item.author} · {formatDate(new Date(item.createdAt).toISOString().slice(0, 10))}
+                  {item.kind === 'review' ? '⭐ ביקורת' : item.kind === 'post' ? '🤝 מודעת שותפים' : '🙌 מפגש'} · {item.author} · {formatDate(new Date(item.createdAt).toISOString().slice(0, 10))}
                   {country && ` · ${country.flag} ${country.name}`}
                 </p>
                 <p className="mod-text">{item.text || <span className="muted">(בלי טקסט)</span>}</p>

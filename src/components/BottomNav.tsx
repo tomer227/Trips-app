@@ -5,7 +5,7 @@ const items = [
   { href: '#/map', label: 'מפה', icon: '🗺️', match: ['map'] },
   { href: '#/plan', label: 'הטיול שלי', icon: '🧭', match: ['plan'] },
   { href: '#/journal', label: 'יומן', icon: '📔', match: ['journal', 'book'] },
-  { href: '#/more', label: 'עוד', icon: '☰', match: ['more', 'tips', 'phrases', 'currency', 'checklist', 'faq', 'about', 'account', 'safety', 'shabbat', 'money', 'partners', 'moderation'] },
+  { href: '#/more', label: 'עוד', icon: '☰', match: ['more', 'tips', 'phrases', 'currency', 'checklist', 'faq', 'about', 'account', 'safety', 'shabbat', 'money', 'partners', 'moderation', 'meetups'] },
 ];
 
 export default function BottomNav({ route }: { route: Route }) {

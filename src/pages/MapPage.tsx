@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import WorldMap, { type MapViewport, type WorldMapHandle } from '../components/WorldMap';
 import PlaceSheet from '../components/PlaceSheet';
+import MeetupSheet from '../components/MeetupSheet';
+import { MEETUP_PREFIX, meetupPlaces, useMeetups } from '../cloud/useMeetups';
 import PageHeader from '../components/PageHeader';
 import PlacesPanel, { type SourceMode } from '../components/PlacesPanel';
 import { allPlaces, hotNow, regionOf, useCommunity } from '../community';
@@ -110,10 +112,26 @@ export default function MapPage({ initialPlaceId, plan }: Props) {
             (!seasonOnly || p.category === 'warning' || isInSeason(p, month)) &&
             (!inPlanOnly || planCountries.has(p.countryId)),
         );
+  // Upcoming meetups (signed-in users) are pins of their own; they open a meetup card, not a place card.
+  const { view: meetupView, reload: reloadMeetups } = useMeetups();
+  const meetups = meetupView.state === 'ok' ? meetupView.meetups : [];
+  const meetupPins = useMemo(() => meetupPlaces(meetups), [meetups]);
+  const visibleMeetups = source === 'google' || hidden.includes('gathering') ? [] : meetupPins.filter((p) => regionOf(p) === region);
+  // Deep link to a meetup (#/map/meetup-<id>), once the meetups have loaded.
+  const linkedMeetup = initialPlaceId?.startsWith(MEETUP_PREFIX) ? meetupPins.find((p) => p.id === initialPlaceId) : undefined;
+  useEffect(() => {
+    if (!linkedMeetup) return;
+    const r = regionOf(linkedMeetup);
+    if (r) setRegion(r);
+    setSelectedId(linkedMeetup.id);
+    setFocus({ lat: linkedMeetup.lat, lng: linkedMeetup.lng, k: FOCUS_ZOOM, nonce: Date.now() });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linkedMeetup?.id]);
   const hot = hotNow(everything, month, region);
   const hotList = [...hot.festivalsNow, ...hot.hotspots].slice(0, 8);
 
-  const selected = [...everything, ...googleAll].find((p) => p.id === selectedId) ?? null;
+  const selected = [...everything, ...googleAll, ...meetupPins].find((p) => p.id === selectedId) ?? null;
+  const selectedMeetup = selected?.id.startsWith(MEETUP_PREFIX) ? meetups.find((m) => `${MEETUP_PREFIX}${m.id}` === selected.id) : undefined;
 
   // Open details (phone, hours, website, photo) only when a Google place is actually opened.
   useEffect(() => {
@@ -233,7 +251,7 @@ export default function MapPage({ initialPlaceId, plan }: Props) {
   };
 
   const regionCountries = countriesByRegion(region);
-  const mapPlaces = source === 'community' ? visibleLocal : [...visibleLocal, ...googleShown];
+  const mapPlaces = source === 'community' ? [...visibleLocal, ...visibleMeetups] : [...visibleLocal, ...visibleMeetups, ...googleShown];
   const showGoogle = source !== 'community';
 
   // Saved places: local ones are known; Google ones are resolved lazily when the list is opened.
@@ -466,7 +484,8 @@ export default function MapPage({ initialPlaceId, plan }: Props) {
         </>
       )}
 
-      {selected && !draft && <PlaceSheet place={selected} community={community} update={update} onClose={() => select(null)} />}
+      {selectedMeetup && !draft && <MeetupSheet meetup={selectedMeetup} onChanged={reloadMeetups} onClose={() => select(null)} />}
+      {selected && !selectedMeetup && !draft && <PlaceSheet place={selected} community={community} update={update} onClose={() => select(null)} />}
 
       {draft && (
         <div className="sheet" role="dialog" aria-label="הוספת מקום">

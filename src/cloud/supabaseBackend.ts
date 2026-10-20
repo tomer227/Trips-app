@@ -8,6 +8,7 @@ import {
   type CloudBackend,
   type CloudReview,
   type CloudUser,
+  type Meetup,
   type ModKind,
   type NewPartnerPost,
   type NewReview,
@@ -17,6 +18,7 @@ import {
   type SyncBlob,
   PARTNER_REPLY_MAX,
   cleanTripWindows,
+  validateMeetup,
   validatePartnerPost,
 } from './types';
 
@@ -45,6 +47,7 @@ export function mapSupabaseError(err: unknown): CloudError {
   if (code === '42501' || code === 'PGRST301' || code === 'PGRST303' || message.includes('jwt')) return new CloudError('not_signed_in');
   if (code === 'P0001' && message.includes('rate limit')) return new CloudError('rate_limited');
   if (code === 'P0001' && message.includes('partner post limit')) return new CloudError('too_many_posts');
+  if (code === 'P0001' && message.includes('meetup limit')) return new CloudError('too_many_meetups');
   return new CloudError('unknown', e.message);
 }
 
@@ -90,6 +93,42 @@ export const rowToPartnerPost = (r: PartnerPostRow): PartnerPost => ({
   text: r.body,
   createdAt: Date.parse(r.created_at) || 0,
 });
+
+interface MeetupRow {
+  id: string;
+  user_id: string;
+  country_id: string;
+  title: string;
+  body: string | null;
+  place_label: string;
+  lat: number;
+  lng: number;
+  starts_at: string;
+  created_at: string;
+  author: string | null;
+  going?: number | string | null;
+  i_am_going?: boolean | null;
+}
+
+export function rowToMeetup(row: MeetupRow): Meetup {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    countryId: row.country_id,
+    title: row.title,
+    text: row.body ?? '',
+    placeLabel: row.place_label,
+    lat: Number(row.lat),
+    lng: Number(row.lng),
+    startsAt: new Date(row.starts_at).toISOString(),
+    author: row.author?.trim() || 'מטייל',
+    going: Number(row.going) || 0,
+    iAmGoing: row.i_am_going === true,
+    createdAt: Date.parse(row.created_at) || 0,
+  };
+}
+
+const MEETUP_COLUMNS = 'id, user_id, country_id, title, body, place_label, lat, lng, starts_at, created_at, author, going, i_am_going';
 
 const PARTNER_POST_COLUMNS = 'id, user_id, country_id, from_date, to_date, kind, body, created_at, author';
 
@@ -359,6 +398,57 @@ export function createSupabaseBackend(client: SupabaseClient, redirectTo: () => 
       const user = await requireUser();
       const { error } = await client.from('partner_reports').insert({ post_id: id, reporter_id: user.id, reason: reason.slice(0, 500) });
       // 23505: this user already reported the post – that is fine.
+      if (error && String(error.code) !== '23505') throw mapSupabaseError(error);
+    },
+
+    async listMeetups() {
+      await requireUser();
+      const since = new Date(Date.now() - 12 * 3_600_000).toISOString();
+      const { data, error } = await client.from('meetups_public').select(MEETUP_COLUMNS).gte('starts_at', since).order('starts_at', { ascending: true }).limit(300);
+      if (error) throw mapSupabaseError(error);
+      return ((data ?? []) as MeetupRow[]).map(rowToMeetup);
+    },
+
+    async createMeetup(m) {
+      const user = await requireUser();
+      const problem = validateMeetup(m);
+      if (problem) throw new CloudError('unknown', problem);
+      const { data, error } = await client
+        .from('meetups')
+        .insert({
+          user_id: user.id,
+          country_id: m.countryId,
+          title: m.title.trim(),
+          body: m.text.trim(),
+          place_label: m.placeLabel.trim(),
+          lat: m.lat,
+          lng: m.lng,
+          starts_at: m.startsAt,
+        })
+        .select('id, user_id, country_id, title, body, place_label, lat, lng, starts_at, created_at')
+        .single();
+      if (error) throw mapSupabaseError(error);
+      return rowToMeetup({ ...(data as MeetupRow), author: user.displayName, going: 0, i_am_going: false });
+    },
+
+    async deleteMeetup(id) {
+      await requireUser();
+      const { error } = await client.from('meetups').delete().eq('id', id);
+      if (error) throw mapSupabaseError(error);
+    },
+
+    async setGoing(id, going) {
+      const user = await requireUser();
+      const { error } = going
+        ? await client.from('meetup_going').insert({ meetup_id: id, user_id: user.id })
+        : await client.from('meetup_going').delete().eq('meetup_id', id).eq('user_id', user.id);
+      // 23505: already marked as coming – that is fine.
+      if (error && String(error.code) !== '23505') throw mapSupabaseError(error);
+    },
+
+    async reportMeetup(id, reason) {
+      const user = await requireUser();
+      const { error } = await client.from('meetup_reports').insert({ meetup_id: id, reporter_id: user.id, reason: reason.slice(0, 500) });
       if (error && String(error.code) !== '23505') throw mapSupabaseError(error);
     },
 

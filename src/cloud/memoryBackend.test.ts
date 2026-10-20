@@ -179,4 +179,30 @@ describe('memory backend: partner board', () => {
     await b.moderate('review', r.id, 'delete');
     expect(await b.listReviews('mod-place')).toEqual([]);
   });
+
+  it('runs meetups: create, count who is coming without names, limits and reports', async () => {
+    const b = createMemoryBackend(store());
+    const at = (h: number) => new Date(Date.now() + h * 3_600_000).toISOString();
+    const m = { countryId: 'peru', title: 'ארוחת שישי', text: '', placeLabel: 'בית חב״ד קוסקו', lat: -13.5, lng: -71.9, startsAt: at(30) };
+    expect(await code(b.listMeetups())).toBe('not_signed_in');
+    await b.signUp({ email: 'a@b.co', password: 'password123', displayName: 'דנה' });
+    const created = await b.createMeetup(m);
+    expect(await code(b.createMeetup({ ...m, startsAt: at(-5) }))).toBe('unknown');
+    await b.createMeetup({ ...m, title: 'טרק ליום' });
+    await b.createMeetup({ ...m, title: 'מסיבה' });
+    expect(await code(b.createMeetup({ ...m, title: 'עוד אחד' }))).toBe('too_many_meetups');
+    await b.signOut();
+
+    await b.signUp({ email: 'c@d.co', password: 'password123', displayName: 'יוסי' });
+    await b.setGoing(created.id, true);
+    await b.setGoing(created.id, true);
+    const seen = (await b.listMeetups()).find((x) => x.id === created.id)!;
+    expect(seen).toMatchObject({ author: 'דנה', going: 1, iAmGoing: true });
+    await b.setGoing(created.id, false);
+    expect((await b.listMeetups()).find((x) => x.id === created.id)!.going).toBe(0);
+    await b.reportMeetup(created.id, 'spam');
+    await b.deleteMeetup(created.id); // not the organiser: nothing happens
+    expect((await b.listMeetups()).some((x) => x.id === created.id)).toBe(true);
+  });
 });
+

@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { describe, expect, it, vi } from 'vitest';
-import { CloudError } from './types';
-import { createSupabaseBackend, mapSupabaseError, rowToReview } from './supabaseBackend';
+import { CloudError, validateMeetup } from './types';
+import { createSupabaseBackend, mapSupabaseError, rowToMeetup, rowToReview } from './supabaseBackend';
 
 type Result = { data?: unknown; error?: { code?: string; message?: string } | null };
 
@@ -251,3 +251,14 @@ describe('partner board', () => {
   });
 });
 
+
+describe('meetups', () => {
+  it('validates before writing and maps rows with the head count', async () => {
+    const row = { id: 'm1', user_id: 'u1', country_id: 'peru', title: 'ארוחת שישי', body: null, place_label: 'בית חב״ד', lat: -13.5, lng: -71.9, starts_at: '2099-01-01T18:00:00+00:00', created_at: '2026-10-01T00:00:00Z', author: null, going: '4', i_am_going: true };
+    expect(rowToMeetup(row)).toMatchObject({ id: 'm1', text: '', author: 'מטייל', going: 4, iAmGoing: true, startsAt: '2099-01-01T18:00:00.000Z' });
+    expect(validateMeetup({ countryId: 'peru', title: 'קצר', text: '', placeLabel: 'כאן', lat: 0, lng: 0, startsAt: new Date(Date.now() + 3_600_000).toISOString() })).toMatch(/כותרת/);
+    expect(validateMeetup({ countryId: 'peru', title: 'ארוחת שישי', text: '', placeLabel: 'כאן', lat: 0, lng: 0, startsAt: new Date(Date.now() + 61 * 86_400_000).toISOString() })).toMatch(/חודשיים/);
+    expect(validateMeetup({ countryId: 'peru', title: 'ארוחת שישי', text: '', placeLabel: 'כאן', lat: 0, lng: 0, startsAt: new Date(Date.now() + 3_600_000).toISOString() })).toBeNull();
+    expect(mapSupabaseError({ code: 'P0001', message: 'meetup limit reached' }).code).toBe('too_many_meetups');
+  });
+});

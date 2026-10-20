@@ -30,6 +30,7 @@ const pageLoaders = {
   PartnersPage: () => import('./pages/PartnersPage'),
   BookPage: () => import('./pages/BookPage'),
   ModerationPage: () => import('./pages/ModerationPage'),
+  MeetupsPage: () => import('./pages/MeetupsPage'),
 };
 const RegionPage = lazy(pageLoaders.RegionPage);
 const CountryPage = lazy(pageLoaders.CountryPage);
@@ -51,6 +52,7 @@ const MoneyPage = lazy(pageLoaders.MoneyPage);
 const PartnersPage = lazy(pageLoaders.PartnersPage);
 const BookPage = lazy(pageLoaders.BookPage);
 const ModerationPage = lazy(pageLoaders.ModerationPage);
+const MeetupsPage = lazy(pageLoaders.MeetupsPage);
 
 export function preloadPages() {
   for (const load of Object.values(pageLoaders)) void load().catch(() => undefined);
@@ -136,6 +138,9 @@ function AppShell() {
       break;
     case 'moderation':
       page = <ModerationPage />;
+      break;
+    case 'meetups':
+      page = <MeetupsPage plan={plan} />;
       break;
     default:
       page = <Home plan={plan} />;

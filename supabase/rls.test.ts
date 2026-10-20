@@ -383,6 +383,66 @@ describe('moderation (0005)', () => {
   });
 });
 
+describe('meetups (0006)', () => {
+  const H = '99999999-9999-4999-8999-999999999999';
+  const inHours = (h: number) => new Date(Date.now() + h * 3_600_000).toISOString();
+  const meetup = (uid: string | null, over: Partial<Record<'title' | 'place' | 'starts' | 'country', string>> = {}) =>
+    as<{ id: string }>(uid, 'insert into public.meetups (country_id, title, place_label, lat, lng, starts_at) values ($1,$2,$3,$4,$5,$6) returning id', [
+      over.country ?? 'peru',
+      over.title ?? 'ארוחת שישי',
+      over.place ?? 'בית חב״ד קוסקו',
+      -13.516,
+      -71.978,
+      over.starts ?? inHours(30),
+    ]);
+  type Row = { id: string; author: string; going: string; i_am_going: boolean };
+
+  beforeAll(async () => {
+    await addUser(H, 'הדר');
+  });
+
+  it('shows upcoming meetups to signed-in users with a head count but not who is coming', async () => {
+    const [{ id }] = await meetup(H);
+    await as(A, 'insert into public.meetup_going (meetup_id) values ($1)', [id]);
+    await as(C, 'insert into public.meetup_going (meetup_id) values ($1)', [id]);
+    const [row] = await as<Row>(A, 'select id, author, going, i_am_going from public.meetups_public where id = $1', [id]);
+    expect(row).toMatchObject({ author: 'הדר', i_am_going: true });
+    expect(Number(row.going)).toBe(2);
+    expect((await as<Row>(D, 'select i_am_going from public.meetups_public where id = $1', [id]))[0].i_am_going).toBe(false);
+    expect(await as(D, 'select * from public.meetup_going where meetup_id = $1', [id])).toEqual([]); // others' rows are private
+    await expect(as(null, 'select * from public.meetups_public')).rejects.toThrow(/permission denied/);
+    await expect(as(A, "update public.meetups set title = 'x' where id = $1", [id])).rejects.toThrow(/permission denied/);
+
+    await as(A, 'delete from public.meetup_going where meetup_id = $1', [id]);
+    expect(Number((await as<Row>(D, 'select going from public.meetups_public where id = $1', [id]))[0].going)).toBe(1);
+  });
+
+  it('rejects bad dates, too many meetups and bad input, and hides old ones', async () => {
+    await expect(meetup(H, { starts: inHours(24 * 61) })).rejects.toThrow(/date out of range/);
+    await expect(meetup(H, { starts: inHours(-3) })).rejects.toThrow(/date out of range/);
+    await expect(meetup(H, { title: 'א' })).rejects.toThrow(/check constraint/);
+    await expect(meetup(H, { country: '<b>' })).rejects.toThrow(/check constraint/);
+    await meetup(H, { title: 'טרק ליום' });
+    await meetup(H, { title: 'מסיבה בחוף' });
+    await expect(meetup(H, { title: 'עוד אחד' })).rejects.toThrow(/meetup limit/);
+
+    const [{ id: old }] = await meetup(A, { title: 'ישן מדי' });
+    await db.query("update public.meetups set starts_at = now() - interval '2 days' where id = $1", [old]);
+    expect(await as(C, "select id from public.meetups_public where title = 'ישן מדי'")).toEqual([]);
+  });
+
+  it('hides a meetup after three reports and lets a moderator restore it', async () => {
+    const [{ id }] = await as<{ id: string }>(A, "insert into public.meetups (country_id, title, place_label, lat, lng, starts_at) values ('chile', 'קפה בבוקר', 'כיכר', 1, 1, $1) returning id", [inHours(5)]);
+    for (const uid of [C, D, H]) await as(uid, 'insert into public.meetup_reports (meetup_id, reason) values ($1, $2)', [id, 'spam']);
+    expect(await as(C, 'select id from public.meetups_public where id = $1', [id])).toEqual([]);
+    await expect(as(C, 'insert into public.meetup_going (meetup_id) values ($1)', [id])).rejects.toThrow(/row-level security/);
+    await db.query("insert into public.moderators (user_id) values ($1) on conflict do nothing", [A]);
+    expect((await as<{ kind: string; id: string }>(A, 'select kind, id from public.mod_queue()')).some((q) => q.kind === 'meetup' && q.id === id)).toBe(true);
+    await as(A, "select public.mod_act('meetup', $1, 'restore')", [id]);
+    expect(await as(C, 'select id from public.meetups_public where id = $1', [id])).toHaveLength(1);
+  });
+});
+
 describe('account deletion', () => {
   it('lets a user delete their account and everything attached, and nobody else', async () => {
     await expect(as(null, 'select public.delete_my_account()')).rejects.toThrow(/permission denied/);

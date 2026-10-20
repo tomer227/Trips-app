@@ -2532,3 +2532,42 @@ textarea {
     color: #fca5a5;
   }
 }
+
+/* ───────────── Meetups ───────────── */
+
+.meetup-list {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 0;
+  display: grid;
+  gap: 12px;
+}
+
+.meetup-badge {
+  background: #0f766e;
+}
+
+.meetup-when,
+.meetup-where,
+.meetup-text {
+  margin: 4px 0;
+}
+
+.meetup-when {
+  font-weight: 700;
+}
+
+.meetup-text {
+  white-space: pre-wrap;
+}
+
+.meetup-location {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.meetup-location select {
+  flex: 1 1 180px;
+}

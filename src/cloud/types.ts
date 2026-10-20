@@ -18,6 +18,7 @@ export type CloudErrorCode =
   | 'not_signed_in'
   | 'too_many_posts'
   | 'already_replied'
+  | 'too_many_meetups'
   | 'unknown';
 
 export class CloudError extends Error {
@@ -39,6 +40,7 @@ export const cloudErrorMessages: Record<CloudErrorCode, string> = {
   not_signed_in: 'צריך להתחבר כדי לבצע את הפעולה.',
   too_many_posts: 'אפשר עד 5 מודעות פעילות. מחקו מודעה ישנה כדי לפרסם חדשה.',
   already_replied: 'כבר שלחתם הודעה למודעה הזו.',
+  too_many_meetups: 'אפשר עד 3 מפגשים קרובים. מחקו אחד כדי ליצור חדש.',
   unknown: 'משהו השתבש. נסו שוב.',
 };
 
@@ -155,9 +157,56 @@ export function validatePartnerPost(p: NewPartnerPost, today = new Date().toISOS
   return null;
 }
 
+/* ─── "מפגשים על המפה" ─── */
+
+export interface NewMeetup {
+  countryId: string;
+  title: string;
+  text: string;
+  /** A public spot, e.g. "בית חב״ד קוסקו" */
+  placeLabel: string;
+  lat: number;
+  lng: number;
+  /** ISO time */
+  startsAt: string;
+}
+
+export interface Meetup extends NewMeetup {
+  id: string;
+  userId: string;
+  author: string;
+  going: number;
+  iAmGoing: boolean;
+  createdAt: number;
+}
+
+export const MEETUP_TITLE_MIN = 4;
+export const MEETUP_TITLE_MAX = 80;
+export const MEETUP_TEXT_MAX = 400;
+export const MEETUP_PLACE_MIN = 2;
+export const MEETUP_PLACE_MAX = 60;
+export const MAX_UPCOMING_MEETUPS = 3;
+const DAY_MS = 86_400_000;
+
+/** The same rules as the database; returns an error message in Hebrew, or null when it is fine. */
+export function validateMeetup(m: NewMeetup, now = Date.now()): string | null {
+  if (!/^[a-z-]{2,40}$/.test(m.countryId)) return 'בחרו מדינה.';
+  const title = m.title.trim().length;
+  if (title < MEETUP_TITLE_MIN || title > MEETUP_TITLE_MAX) return `כתבו כותרת של ${MEETUP_TITLE_MIN} עד ${MEETUP_TITLE_MAX} תווים.`;
+  const place = m.placeLabel.trim().length;
+  if (place < MEETUP_PLACE_MIN || place > MEETUP_PLACE_MAX) return 'כתבו איפה נפגשים (שם של מקום ציבורי).';
+  if (m.text.length > MEETUP_TEXT_MAX) return `הפרטים ארוכים מדי (עד ${MEETUP_TEXT_MAX} תווים).`;
+  if (!Number.isFinite(m.lat) || !Number.isFinite(m.lng) || Math.abs(m.lat) > 90 || Math.abs(m.lng) > 180) return 'בחרו מיקום על המפה.';
+  const at = Date.parse(m.startsAt);
+  if (!Number.isFinite(at)) return 'בחרו תאריך ושעה.';
+  if (at < now - 3_600_000) return 'המועד כבר עבר.';
+  if (at > now + 60 * DAY_MS) return 'אפשר לקבוע מפגש עד חודשיים קדימה.';
+  return null;
+}
+
 /* ─── Moderation ─── */
 
-export type ModKind = 'review' | 'post';
+export type ModKind = 'review' | 'post' | 'meetup';
 export type ModAction = 'restore' | 'hide' | 'delete';
 
 export interface ModItem {
@@ -213,6 +262,14 @@ export interface CloudBackend {
   listPartnerReplies(): Promise<PartnerReply[]>;
   deletePartnerReply(id: string): Promise<void>;
   reportPartnerPost(id: string, reason: string): Promise<void>;
+
+  /** Upcoming meetups (signed-in users only), soonest first. */
+  listMeetups(): Promise<Meetup[]>;
+  createMeetup(meetup: NewMeetup): Promise<Meetup>;
+  deleteMeetup(id: string): Promise<void>;
+  /** Say you are coming, or take it back. */
+  setGoing(id: string, going: boolean): Promise<void>;
+  reportMeetup(id: string, reason: string): Promise<void>;
 
   /** True for users listed in public.moderators (set from the dashboard). */
   isModerator(): Promise<boolean>;

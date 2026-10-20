@@ -8,6 +8,7 @@ import {
   type CloudReview,
   type CloudUser,
   type FellowTraveler,
+  type Meetup,
   type ModItem,
   type NewReview,
   type PartnerPost,
@@ -17,6 +18,8 @@ import {
   MAX_ACTIVE_PARTNER_POSTS,
   PARTNER_REPLY_MAX,
   cleanTripWindows,
+  MAX_UPCOMING_MEETUPS,
+  validateMeetup,
   validatePartnerPost,
   windowsOverlap,
 } from './types';
@@ -40,11 +43,14 @@ interface MemState {
   partnerReports: { postId: string; reporterId: string; reason?: string }[];
   /** User ids that may moderate (tests and VITE_CLOUD=memory set it directly). */
   moderators: string[];
+  meetups: (Omit<Meetup, 'going' | 'iAmGoing' | 'author'> & { hidden?: boolean })[];
+  going: { meetupId: string; userId: string }[];
+  meetupReports: { meetupId: string; reporterId: string; reason: string }[];
 }
 
 const KEY = 'memory-cloud';
 
-const empty = (): MemState => ({ users: [], sessionUserId: null, userData: {}, reviews: [], reports: [], trips: {}, partnerPosts: [], partnerReplies: [], partnerReports: [], moderators: [] });
+const empty = (): MemState => ({ users: [], sessionUserId: null, userData: {}, reviews: [], reports: [], trips: {}, partnerPosts: [], partnerReplies: [], partnerReports: [], moderators: [], meetups: [], going: [], meetupReports: [] });
 
 /**
  * A complete in-memory stand-in for the cloud, persisted in localStorage so it survives reloads.
@@ -316,6 +322,68 @@ export function createMemoryBackend(storage: Pick<Storage, 'getItem' | 'setItem'
       save();
     },
 
+    async listMeetups() {
+      const u = requireUser();
+      const since = Date.now() - 12 * 3_600_000;
+      const name = (id: string) => state.users.find((x) => x.id === id)?.displayName ?? 'מטייל';
+      return state.meetups
+        .filter((m) => !m.hidden && Date.parse(m.startsAt) > since)
+        .sort((a, b) => a.startsAt.localeCompare(b.startsAt))
+        .map(({ hidden: _hidden, ...m }) => ({
+          ...m,
+          author: name(m.userId),
+          going: state.going.filter((g) => g.meetupId === m.id).length,
+          iAmGoing: state.going.some((g) => g.meetupId === m.id && g.userId === u.id),
+        }));
+    },
+
+    async createMeetup(input) {
+      const u = requireUser();
+      const problem = validateMeetup(input);
+      if (problem) throw new CloudError('unknown', problem);
+      if (state.meetups.filter((m) => m.userId === u.id && Date.parse(m.startsAt) > Date.now()).length >= MAX_UPCOMING_MEETUPS) throw new CloudError('too_many_meetups');
+      const meetup = {
+        ...input,
+        title: input.title.trim(),
+        text: input.text.trim(),
+        placeLabel: input.placeLabel.trim(),
+        startsAt: new Date(input.startsAt).toISOString(),
+        id: crypto.randomUUID(),
+        userId: u.id,
+        createdAt: Date.now(),
+      };
+      state.meetups.push(meetup);
+      save();
+      await delay();
+      return { ...meetup, author: u.displayName, going: 0, iAmGoing: false };
+    },
+
+    async deleteMeetup(id) {
+      const u = requireUser();
+      state.meetups = state.meetups.filter((m) => !(m.id === id && m.userId === u.id));
+      state.going = state.going.filter((g) => state.meetups.some((m) => m.id === g.meetupId));
+      save();
+    },
+
+    async setGoing(id, going) {
+      const u = requireUser();
+      state.going = state.going.filter((g) => !(g.meetupId === id && g.userId === u.id));
+      const visible = state.meetups.some((m) => m.id === id && !m.hidden);
+      if (going && visible) state.going.push({ meetupId: id, userId: u.id });
+      save();
+    },
+
+    async reportMeetup(id, reason) {
+      const u = requireUser();
+      if (state.meetupReports.some((r) => r.meetupId === id && r.reporterId === u.id)) return;
+      state.meetupReports.push({ meetupId: id, reporterId: u.id, reason });
+      if (new Set(state.meetupReports.filter((r) => r.meetupId === id).map((r) => r.reporterId)).size >= 3) {
+        const m = state.meetups.find((x) => x.id === id);
+        if (m) m.hidden = true;
+      }
+      save();
+    },
+
     async isModerator() {
       state = load();
       const u = current();
@@ -335,6 +403,10 @@ export function createMemoryBackend(storage: Pick<Storage, 'getItem' | 'setItem'
           const reps = state.partnerReports.filter((x) => x.postId === p.id);
           return { kind: 'post' as const, id: p.id, text: p.text, author: name(p.userId), subject: p.countryId, hidden: !!p.hidden, reports: reps.length, reasons: reps.map((x) => x.reason ?? '').filter(Boolean), createdAt: p.createdAt };
         }),
+        ...state.meetups.map((m) => {
+          const reps = state.meetupReports.filter((x) => x.meetupId === m.id);
+          return { kind: 'meetup' as const, id: m.id, text: `${m.title}\n${m.placeLabel}${m.text ? `\n${m.text}` : ''}`, author: name(m.userId), subject: m.countryId, hidden: !!m.hidden, reports: reps.length, reasons: reps.map((x) => x.reason).filter(Boolean), createdAt: m.createdAt };
+        }),
       ];
       return items.filter((i) => i.hidden || i.reports > 0).sort((a, b) => Number(b.hidden) - Number(a.hidden) || b.reports - a.reports || b.createdAt - a.createdAt);
     },
@@ -342,17 +414,19 @@ export function createMemoryBackend(storage: Pick<Storage, 'getItem' | 'setItem'
     async moderate(kind, id, action) {
       const u = requireUser();
       if (!state.moderators.includes(u.id)) throw new CloudError('not_signed_in');
-      const list = kind === 'review' ? state.reviews : state.partnerPosts;
+      const list: { id: string; hidden?: boolean }[] = kind === 'review' ? state.reviews : kind === 'post' ? state.partnerPosts : state.meetups;
       const item = list.find((x) => x.id === id);
       if (!item) return;
       if (action === 'delete') {
         if (kind === 'review') state.reviews = state.reviews.filter((x) => x.id !== id);
-        else state.partnerPosts = state.partnerPosts.filter((x) => x.id !== id);
+        else if (kind === 'post') state.partnerPosts = state.partnerPosts.filter((x) => x.id !== id);
+        else state.meetups = state.meetups.filter((x) => x.id !== id);
       } else {
         item.hidden = action === 'hide';
         if (action === 'restore') {
           if (kind === 'review') state.reports = state.reports.filter((x) => x.reviewId !== id);
-          else state.partnerReports = state.partnerReports.filter((x) => x.postId !== id);
+          else if (kind === 'post') state.partnerReports = state.partnerReports.filter((x) => x.postId !== id);
+          else state.meetupReports = state.meetupReports.filter((x) => x.meetupId !== id);
         }
       }
       save();
