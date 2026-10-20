@@ -2360,3 +2360,108 @@ textarea {
     color: #4ade80;
   }
 }
+
+/* ───────────── Trip book ───────────── */
+
+.trip-book {
+  margin-top: 16px;
+  background: var(--surface);
+  border-radius: 20px;
+  padding: 24px 20px;
+  line-height: 1.7;
+}
+
+.book-cover {
+  text-align: center;
+  padding-bottom: 20px;
+  border-bottom: 2px dashed var(--border);
+}
+
+.book-cover h2 {
+  font-size: 1.9rem;
+  margin: 4px 0;
+}
+
+.book-flags {
+  font-size: 1.8rem;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+}
+
+.book-stats {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px 18px;
+}
+
+.book-stats strong {
+  font-size: 1.2rem;
+}
+
+.book-chapter {
+  padding-top: 20px;
+}
+
+.book-chapter h3 {
+  font-size: 1.4rem;
+  margin: 0;
+}
+
+.book-entry {
+  margin-top: 14px;
+  break-inside: avoid;
+}
+
+.book-entry h4 {
+  margin: 0 0 4px;
+  font-size: 1.05rem;
+}
+
+.book-entry-head {
+  margin: 0;
+}
+
+.book-entry-text {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+@media print {
+  .no-print,
+  .bottom-nav,
+  .update-banner,
+  .offline-banner {
+    display: none !important;
+  }
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+  .trip-book {
+    margin: 0;
+    padding: 0;
+    border-radius: 0;
+    background: #fff;
+    color: #000;
+  }
+  .book-cover {
+    min-height: 60vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    break-after: page;
+  }
+  .book-chapter {
+    break-before: page;
+  }
+  .book-chapter:first-of-type {
+    break-before: auto;
+  }
+}

@@ -149,6 +149,12 @@ function Memories({ journal, setJournal, defaultCountry }: SectionProps) {
         </button>
       )}
 
+      {journal.entries.length > 0 && !draft && (
+        <a className="btn btn-secondary btn-block" href="#/book">
+          📖 ספר הטיול להדפסה
+        </a>
+      )}
+
       {journal.entries.length === 0 && !draft && (
         <div className="card empty">
           <p>📖 עוד אין רשומות. כתבו כמה שורות בסוף כל יום – בעוד 10 שנים תודו לעצמכם.</p>
