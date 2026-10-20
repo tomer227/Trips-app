@@ -163,7 +163,7 @@ export async function handlePlacesRequest(req: ProxyRequest, deps: ProxyDeps): P
 
   const allowed = (deps.allowedOrigins ?? '').split(',').map((o) => o.trim()).filter(Boolean);
   if (allowed.length && req.origin && !allowed.includes(req.origin)) return fail(403, 'forbidden_origin');
-  if (!limiter.allow(req.ip ?? 'unknown', now) || !globalLimiter.allow('all', now)) return fail(429, 'rate_limited');
+  if (!limiter.allow(req.ip ?? 'unknown', now)) return fail(429, 'rate_limited');
   if (!deps.apiKey) return fail(503, 'not_configured');
 
   const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
@@ -171,6 +171,8 @@ export async function handlePlacesRequest(req: ProxyRequest, deps: ProxyDeps): P
 
   /** One place for all upstream calls, so the key and error handling live in one spot. */
   const upstream = async (path: string, init: { method: 'GET' | 'POST'; fieldMask?: string; body?: unknown }): Promise<ProxyResponse & { ok: boolean }> => {
+    // Counted only for real calls to Google: cache hits and invalid requests never use it up.
+    if (!globalLimiter.allow('all', now)) return { ok: false, ...fail(429, 'rate_limited') };
     try {
       const res = await fetchFn(`${BASE}${path}`, {
         method: init.method,

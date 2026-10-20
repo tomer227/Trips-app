@@ -1,4 +1,4 @@
-# להעלות את האפליקציה לאוויר: 4 שלבים
+# להעלות את האפליקציה לאוויר: 4 שלבים (ועוד שלב 5 רשות)
 
 כל מה שלא דורש את החשבונות שלך כבר מוכן ונבדק. נשארו רק דברים שרק אתה יכול לעשות, כי הם דורשים כניסה לחשבונות שלך.
 בסוף תקבל קישור בצורה `https://<שם-הפרויקט>.web.app`.
@@ -11,11 +11,6 @@
 1. פתח את [console.cloud.google.com/apis/credentials](https://console.cloud.google.com/apis/credentials) (בחר למעלה את הפרויקט של האפליקציה).
 2. לחץ **+ Create credentials** ואז **API key**. יופיע מפתח חדש. **אל תשלח אותו לאף אחד, גם לא אליי.** תשאיר את החלון פתוח.
 3. לחץ על שם המפתח החדש. תחת **API restrictions** בחר **Restrict key**, סמן רק **Places API (New)** ולחץ **Save**.
-
-ומומלץ באותו מקום, כדי להקשות על פריצה לחשבונות:
-- **Authentication → Sign In / Providers → Email:** ודא ש־**Confirm email** מסומן.
-- **Authentication → Policies** (או **Password settings**): **Minimum password length** = 8, וסמן **Prevent use of leaked passwords** אם האפשרות קיימת בחשבון שלך.
-לחץ **Save**.
 4. באותו עמוד, ליד המפתח **הישן**, לחץ על שלוש הנקודות ואז **Delete**.
 5. מומלץ: [Billing → Budgets & alerts](https://console.cloud.google.com/billing/budgets) → **Create budget**, למשל 20$ בחודש, עם התראה למייל.
 
@@ -52,6 +47,11 @@
 **Authentication → URL Configuration** ב־Supabase:
 - **Site URL:** הקישור משלב 3.
 - **Redirect URLs → Add URL:** אותו קישור עם `/` בסוף.
+לחץ **Save**.
+
+ומומלץ באותו מקום, כדי להקשות על פריצה לחשבונות:
+- **Authentication → Sign In / Providers → Email:** ודא ש־**Confirm email** מסומן.
+- **Authentication → Policies** (או **Password settings**): **Minimum password length** = 8, וסמן **Prevent use of leaked passwords** אם האפשרות קיימת בחשבון שלך.
 לחץ **Save**.
 
 ## שלב 5: להפוך את עצמך למנהל (דקה, רשות)

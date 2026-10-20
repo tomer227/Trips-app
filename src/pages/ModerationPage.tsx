@@ -80,8 +80,8 @@ export default function ModerationPage() {
                   {item.hidden ? <strong className="mod-hidden">מוסתר</strong> : <strong>מוצג</strong>} · {item.reports} דיווחים
                   {item.reasons.length > 0 && <> · סיבות: {item.reasons.join(' / ')}</>}
                 </p>
-                {item.kind === 'review' && (
-                  <a className="link small" href={`#/map/${encodeURIComponent(item.subject)}`}>
+                {item.kind === 'review' && /^[\w:-]+$/.test(item.subject) && (
+                  <a className="link small" href={`#/map/${item.subject}`}>
                     פתיחת המקום במפה
                   </a>
                 )}

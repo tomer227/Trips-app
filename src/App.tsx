@@ -162,7 +162,7 @@ function AppShell() {
         </div>
       )}
       <main className="content">
-        <ErrorBoundary key={window.location.hash}>
+        <ErrorBoundary key={JSON.stringify(route)}>
           <Suspense fallback={<p className="muted page-loading">טוען…</p>}>{page}</Suspense>
         </ErrorBoundary>
       </main>

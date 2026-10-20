@@ -3,8 +3,8 @@ import PageHeader from '../components/PageHeader';
 import CountrySelect from '../components/CountrySelect';
 import { useAuth } from '../cloud/AuthContext';
 import {
-  CloudError,
-  cloudErrorMessages,
+  cloudErrorText,
+  localToday,
   partnerKinds,
   validatePartnerPost,
   PARTNER_REPLY_MAX,
@@ -18,9 +18,9 @@ import { getCountry } from '../data/countries';
 
 type Board = { state: 'loading' } | { state: 'error' } | { state: 'ok'; posts: PartnerPost[]; replies: PartnerReply[] };
 
-const today = () => new Date().toISOString().slice(0, 10);
-const inDays = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
-const errorText = (e: unknown) => (e instanceof CloudError ? (e.code === 'unknown' && e.message !== 'unknown' ? e.message : cloudErrorMessages[e.code]) : cloudErrorMessages.unknown);
+// The traveller's own calendar day: in the Americas the UTC date is already tomorrow by evening.
+const today = () => localToday();
+const inDays = (n: number) => localToday(new Date(Date.now() + n * 86_400_000));
 const kindOf = (id: string) => partnerKinds.find((k) => k.id === id) ?? partnerKinds[0];
 
 /**
@@ -173,7 +173,7 @@ function Composer({ initial, onPublish, onCancel }: { initial?: { countryId: str
     try {
       await onPublish(draft);
     } catch (e) {
-      setError(errorText(e));
+      setError(cloudErrorText(e));
       setBusy(false);
     }
   };
@@ -241,7 +241,7 @@ function PostCard({ post, mine, replies, myId, onChange }: { post: PartnerPost; 
       if (done) setNotice(done);
       await onChange();
     } catch (e) {
-      setError(errorText(e));
+      setError(cloudErrorText(e));
     }
   };
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createMemoryBackend } from './memoryBackend';
-import { CloudError } from './types';
+import { CloudError, localToday } from './types';
 
 const store = () => {
   const m = new Map<string, string>();
@@ -97,19 +97,19 @@ describe('memory backend', () => {
   it('shows who else will be in the same country at the same time, only to travellers who share', async () => {
     const st = store();
     const b = createMemoryBackend(st);
-    const far = (m: number) => `2099-0${m}`;
+    const day = (n: number) => localToday(new Date(Date.now() + n * 86_400_000));
     await b.signUp({ email: 'a@b.co', password: 'password123', displayName: 'דנה' });
-    await b.publishTrip([{ countryId: 'peru', from: `${far(1)}-01`, to: `${far(1)}-31` }, { countryId: 'bolivia', from: `${far(2)}-01`, to: `${far(2)}-10` }]);
+    await b.publishTrip([{ countryId: 'peru', from: day(30), to: day(60) }, { countryId: 'bolivia', from: day(61), to: day(70) }]);
     await b.signOut();
 
     await b.signUp({ email: 'c@d.co', password: 'password123', displayName: 'יוסי' });
     expect(await b.whoElseThere()).toEqual([]); // not sharing yet: sees nobody
     await b.publishTrip([
-      { countryId: 'peru', from: `${far(1)}-20`, to: `${far(2)}-05` },
-      { countryId: 'chile', from: `${far(1)}-01`, to: `${far(1)}-31` },
-      { countryId: 'bad id!', from: `${far(1)}-01`, to: `${far(1)}-02` },
+      { countryId: 'peru', from: day(50), to: day(65) },
+      { countryId: 'chile', from: day(30), to: day(60) },
+      { countryId: 'bad id!', from: day(30), to: day(31) },
     ]);
-    expect(await b.whoElseThere()).toEqual([{ name: 'דנה', countryId: 'peru', from: `${far(1)}-01`, to: `${far(1)}-31` }]);
+    expect(await b.whoElseThere()).toEqual([{ name: 'דנה', countryId: 'peru', from: day(30), to: day(60) }]);
 
     await b.publishTrip([]);
     expect(await b.whoElseThere()).toEqual([]);
@@ -136,7 +136,7 @@ describe('memory backend: partner board', () => {
     await b.signUp({ email: 'a@b.co', password: 'password123', displayName: 'דנה' });
     const post = await b.createPartnerPost(ad);
     await b.createPartnerPost({ ...ad, from: '2000-01-01', to: '2000-01-02' }).catch(() => undefined); // past dates are refused
-    expect(await errCode(b.replyToPartnerPost(post.id, 'עונה לעצמי'))).toBe('unknown');
+    expect(await errCode(b.replyToPartnerPost(post.id, 'עונה לעצמי'))).toBe('not_allowed');
     await b.signOut();
 
     await b.signUp({ email: 'c@d.co', password: 'password123', displayName: 'יוסי' });
@@ -187,7 +187,7 @@ describe('memory backend: partner board', () => {
     expect(await code(b.listMeetups())).toBe('not_signed_in');
     await b.signUp({ email: 'a@b.co', password: 'password123', displayName: 'דנה' });
     const created = await b.createMeetup(m);
-    expect(await code(b.createMeetup({ ...m, startsAt: at(-5) }))).toBe('unknown');
+    expect(await code(b.createMeetup({ ...m, startsAt: at(-5) }))).toBe('invalid_input');
     await b.createMeetup({ ...m, title: 'טרק ליום' });
     await b.createMeetup({ ...m, title: 'מסיבה' });
     expect(await code(b.createMeetup({ ...m, title: 'עוד אחד' }))).toBe('too_many_meetups');

@@ -4,13 +4,12 @@ import CountrySelect from '../components/CountrySelect';
 import MeetupSheet from '../components/MeetupSheet';
 import { useAuth } from '../cloud/AuthContext';
 import { useMeetups } from '../cloud/useMeetups';
-import { CloudError, cloudErrorMessages, validateMeetup, MEETUP_PLACE_MAX, MEETUP_TEXT_MAX, MEETUP_TITLE_MAX, type NewMeetup } from '../cloud/types';
+import { cloudErrorText, localToday, validateMeetup, MEETUP_PLACE_MAX, MEETUP_TEXT_MAX, MEETUP_TITLE_MAX, type NewMeetup } from '../cloud/types';
 import { getCountry } from '../data/countries';
 import { places as curatedPlaces } from '../data/places';
 import { getPosition } from '../geo';
 import type { TripPlan } from '../budget';
 
-const errorText = (e: unknown) => (e instanceof CloudError ? (e.code === 'unknown' && e.message !== 'unknown' ? e.message : cloudErrorMessages[e.code]) : cloudErrorMessages.unknown);
 
 /** Local date and time from the inputs, as an ISO instant. */
 function toIso(date: string, time: string): string {
@@ -18,11 +17,7 @@ function toIso(date: string, time: string): string {
   return Number.isNaN(d.getTime()) ? '' : d.toISOString();
 }
 
-const localDay = (offsetDays = 0) => {
-  const d = new Date(Date.now() + offsetDays * 86_400_000);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-};
+const localDay = (offsetDays = 0) => localToday(new Date(Date.now() + offsetDays * 86_400_000));
 
 /**
  * "מפגשים": travellers pin a meetup at a public spot (Friday dinner, a hike, a night out). Signed-in
@@ -60,7 +55,9 @@ export default function MeetupsPage({ plan }: { plan: TripPlan }) {
 
   const meetups = view.state === 'ok' ? view.meetups : [];
   const countriesWith = [...new Set(meetups.map((m) => m.countryId))].filter((id) => getCountry(id));
-  const shown = filter === 'all' ? meetups : meetups.filter((m) => m.countryId === filter);
+  // A filter whose country no longer has meetups falls back to all (its chip is gone too).
+  const activeFilter = countriesWith.includes(filter) && countriesWith.length > 1 ? filter : 'all';
+  const shown = activeFilter === 'all' ? meetups : meetups.filter((m) => m.countryId === activeFilter);
 
   return (
     <>
@@ -75,13 +72,13 @@ export default function MeetupsPage({ plan }: { plan: TripPlan }) {
 
       {countriesWith.length > 1 && (
         <div className="chips" role="tablist" aria-label="סינון לפי מדינה">
-          <button role="tab" aria-selected={filter === 'all'} className={`chip${filter === 'all' ? ' active' : ''}`} onClick={() => setFilter('all')}>
+          <button role="tab" aria-selected={activeFilter === 'all'} className={`chip${activeFilter === 'all' ? ' active' : ''}`} onClick={() => setFilter('all')}>
             הכל
           </button>
           {countriesWith.map((id) => {
             const c = getCountry(id)!;
             return (
-              <button key={id} role="tab" aria-selected={filter === id} className={`chip${filter === id ? ' active' : ''}`} onClick={() => setFilter(id)}>
+              <button key={id} role="tab" aria-selected={activeFilter === id} className={`chip${activeFilter === id ? ' active' : ''}`} onClick={() => setFilter(id)}>
                 {c.flag} {c.name}
               </button>
             );
@@ -156,7 +153,7 @@ function Composer({ defaultCountry, onCancel, onDone }: { defaultCountry: string
       await backend.createMeetup(draft);
       await onDone();
     } catch (e) {
-      setError(errorText(e));
+      setError(cloudErrorText(e));
     } finally {
       setBusy(false);
     }

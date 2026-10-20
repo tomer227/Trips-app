@@ -270,7 +270,7 @@ export function createMemoryBackend(storage: Pick<Storage, 'getItem' | 'setItem'
     async createPartnerPost(input) {
       const u = requireUser();
       const problem = validatePartnerPost(input);
-      if (problem) throw new CloudError('unknown', problem);
+      if (problem) throw new CloudError('invalid_input', problem, problem);
       const today = new Date().toISOString().slice(0, 10);
       if (state.partnerPosts.filter((p) => p.userId === u.id && p.to >= today).length >= MAX_ACTIVE_PARTNER_POSTS) throw new CloudError('too_many_posts');
       const post: PartnerPost = { ...input, text: input.text.trim(), id: crypto.randomUUID(), userId: u.id, author: u.displayName, createdAt: Date.now() };
@@ -292,7 +292,7 @@ export function createMemoryBackend(storage: Pick<Storage, 'getItem' | 'setItem'
       const today = new Date().toISOString().slice(0, 10);
       const post = state.partnerPosts.find((p) => p.id === postId && !p.hidden && p.to >= today);
       const body = text.trim().slice(0, PARTNER_REPLY_MAX);
-      if (!post || post.userId === u.id || body.length < 2) throw new CloudError('unknown', 'cannot reply');
+      if (!post || post.userId === u.id || body.length < 2) throw new CloudError('not_allowed', 'cannot reply');
       if (state.partnerReplies.some((r) => r.postId === postId && r.userId === u.id)) throw new CloudError('already_replied');
       state.partnerReplies.push({ id: crypto.randomUUID(), postId, userId: u.id, author: u.displayName, text: body, createdAt: Date.now() });
       save();
@@ -340,7 +340,7 @@ export function createMemoryBackend(storage: Pick<Storage, 'getItem' | 'setItem'
     async createMeetup(input) {
       const u = requireUser();
       const problem = validateMeetup(input);
-      if (problem) throw new CloudError('unknown', problem);
+      if (problem) throw new CloudError('invalid_input', problem, problem);
       if (state.meetups.filter((m) => m.userId === u.id && Date.parse(m.startsAt) > Date.now()).length >= MAX_UPCOMING_MEETUPS) throw new CloudError('too_many_meetups');
       const meetup = {
         ...input,

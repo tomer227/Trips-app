@@ -43,11 +43,16 @@ export function mapSupabaseError(err: unknown): CloudError {
   if (code === 'email_not_confirmed' || message.includes('email not confirmed')) return new CloudError('email_not_confirmed');
   if (code === 'over_request_rate_limit' || code === 'over_email_send_rate_limit' || e.status === 429 || message.includes('rate limit')) return new CloudError('rate_limited');
   if (code === 'validation_failed' && message.includes('email')) return new CloudError('invalid_email');
-  // Row Level Security violations and expired sessions both mean "not allowed as this user".
-  if (code === '42501' || code === 'PGRST301' || code === 'PGRST303' || message.includes('jwt')) return new CloudError('not_signed_in');
+  // An expired session; a Row Level Security refusal while signed in usually means the post or
+  // meetup is no longer open (expired, hidden or deleted since the page loaded).
+  if (code === 'PGRST301' || code === 'PGRST303' || message.includes('jwt')) return new CloudError('not_signed_in');
+  if (code === '42501') return new CloudError('not_allowed', e.message);
+  if (code === '23514' || code === '22007' || code === '22008' || code === '22P02') return new CloudError('invalid_input', e.message);
   if (code === 'P0001' && message.includes('rate limit')) return new CloudError('rate_limited');
   if (code === 'P0001' && message.includes('partner post limit')) return new CloudError('too_many_posts');
   if (code === 'P0001' && message.includes('meetup limit')) return new CloudError('too_many_meetups');
+  if (code === 'P0001' && message.includes('meetup date out of range')) return new CloudError('invalid_input', e.message, 'אפשר לקבוע מפגש מהיום ועד חודשיים קדימה.');
+  if (code === 'P0001' && message.startsWith('trip ')) return new CloudError('invalid_input', e.message);
   return new CloudError('unknown', e.message);
 }
 
@@ -344,7 +349,7 @@ export function createSupabaseBackend(client: SupabaseClient, redirectTo: () => 
     async createPartnerPost(post: NewPartnerPost) {
       const user = await requireUser();
       const problem = validatePartnerPost(post);
-      if (problem) throw new CloudError('unknown', problem);
+      if (problem) throw new CloudError('invalid_input', problem, problem);
       const { data, error } = await client
         .from('partner_posts')
         .insert({ user_id: user.id, country_id: post.countryId, from_date: post.from, to_date: post.to, kind: post.kind, body: post.text.trim() })
@@ -412,7 +417,7 @@ export function createSupabaseBackend(client: SupabaseClient, redirectTo: () => 
     async createMeetup(m) {
       const user = await requireUser();
       const problem = validateMeetup(m);
-      if (problem) throw new CloudError('unknown', problem);
+      if (problem) throw new CloudError('invalid_input', problem, problem);
       const { data, error } = await client
         .from('meetups')
         .insert({

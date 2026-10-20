@@ -67,6 +67,16 @@ describe('places proxy – security', () => {
     }
     expect(statuses).toEqual([200, 200, 200, 429]);
   });
+
+  it('does not use up the shared cap on cache hits or invalid requests', async () => {
+    const { deps } = setup();
+    const globalLimiter = new RateLimiter(1, 60_000);
+    const cache = new TtlCache();
+    const call = (body: unknown, ip: string) => handlePlacesRequest({ action: 'nearby', method: 'POST', query: {}, body, ip }, { ...deps, globalLimiter, cache });
+    for (let i = 0; i < 5; i++) expect((await call({}, `10.1.0.${i}`)).status).toBe(400);
+    expect((await call(nearbyBody, '10.2.0.1')).status).toBe(200);
+    for (let i = 0; i < 5; i++) expect((await call(nearbyBody, `10.3.0.${i}`)).status).toBe(200); // cache hits
+  });
 });
 
 describe('places proxy – field masks and validation', () => {

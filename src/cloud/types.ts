@@ -19,10 +19,20 @@ export type CloudErrorCode =
   | 'too_many_posts'
   | 'already_replied'
   | 'too_many_meetups'
+  | 'invalid_input'
+  | 'not_allowed'
   | 'unknown';
 
 export class CloudError extends Error {
-  constructor(public code: CloudErrorCode, message?: string) {
+  /**
+   * @param message technical detail, for logs only (may be English from the server)
+   * @param userMessage a Hebrew sentence to show instead of the generic one for `code`
+   */
+  constructor(
+    public code: CloudErrorCode,
+    message?: string,
+    public userMessage?: string,
+  ) {
     super(message ?? code);
     this.name = 'CloudError';
   }
@@ -41,8 +51,22 @@ export const cloudErrorMessages: Record<CloudErrorCode, string> = {
   too_many_posts: 'אפשר עד 5 מודעות פעילות. מחקו מודעה ישנה כדי לפרסם חדשה.',
   already_replied: 'כבר שלחתם הודעה למודעה הזו.',
   too_many_meetups: 'אפשר עד 3 מפגשים קרובים. מחקו אחד כדי ליצור חדש.',
+  invalid_input: 'חלק מהפרטים לא תקינים. בדקו ונסו שוב.',
+  not_allowed: 'אי אפשר לעשות את זה כרגע. ייתכן שהמודעה או המפגש כבר לא פעילים. רעננו את העמוד.',
   unknown: 'משהו השתבש. נסו שוב.',
 };
+
+/** The Hebrew sentence to show for any error. Server text (often English) is never shown. */
+export function cloudErrorText(e: unknown): string {
+  if (e instanceof CloudError) return e.userMessage ?? cloudErrorMessages[e.code];
+  return cloudErrorMessages.unknown;
+}
+
+/** Today's date where the traveller is (not UTC): in the Americas the UTC date flips in the evening. */
+export function localToday(now = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
 
 export const PASSWORD_MIN = 8;
 export const NAME_MIN = 2;
@@ -144,7 +168,7 @@ export const PARTNER_REPLY_MAX = 400;
 export const MAX_ACTIVE_PARTNER_POSTS = 5;
 
 /** The same rules as the database; returns an error message in Hebrew, or null when the post is fine. */
-export function validatePartnerPost(p: NewPartnerPost, today = new Date().toISOString().slice(0, 10)): string | null {
+export function validatePartnerPost(p: NewPartnerPost, today = localToday()): string | null {
   const len = p.text.trim().length;
   if (!/^[a-z-]{2,40}$/.test(p.countryId)) return 'בחרו מדינה.';
   if (!partnerKinds.some((k) => k.id === p.kind)) return 'בחרו סוג.';
@@ -278,19 +302,34 @@ export interface CloudBackend {
   moderate(kind: ModKind, id: string, action: ModAction): Promise<void>;
 }
 
-/** The database (0004_hardening.sql) accepts at most 15 current stops. */
+/** The database (0004_hardening.sql) accepts at most 15 current stops, 400 days in total, up to two years ahead. */
 export const MAX_TRIP_WINDOWS = 15;
+export const MAX_TRIP_DAYS = 400;
+export const MAX_TRIP_AHEAD_DAYS = 730;
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+const dayNumber = (iso: string) => Math.round(Date.parse(`${iso}T00:00:00Z`) / 86_400_000);
+const isoOfDay = (n: number) => new Date(n * 86_400_000).toISOString().slice(0, 10);
 
 /**
- * Keeps only well-formed stops that have not ended yet (the database applies the same rules),
- * at most MAX_TRIP_WINDOWS.
+ * Keeps what the database accepts (0004_hardening.sql): well-formed stops that have not ended,
+ * starting from today, at most MAX_TRIP_WINDOWS, MAX_TRIP_DAYS in total and MAX_TRIP_AHEAD_DAYS
+ * ahead. A long trip is cut at the end, so the next months are always shared.
  */
-export function cleanTripWindows(windows: TripWindow[], today = new Date().toISOString().slice(0, 10)): TripWindow[] {
-  return windows
-    .filter((w) => /^[a-z-]{2,40}$/.test(w.countryId) && ISO_DAY.test(w.from) && ISO_DAY.test(w.to) && w.from <= w.to && w.to >= today)
-    .slice(0, MAX_TRIP_WINDOWS);
+export function cleanTripWindows(windows: TripWindow[], today = localToday()): TripWindow[] {
+  const first = dayNumber(today);
+  let budget = MAX_TRIP_DAYS;
+  const out: TripWindow[] = [];
+  for (const w of windows) {
+    if (!/^[a-z-]{2,40}$/.test(w.countryId) || !ISO_DAY.test(w.from) || !ISO_DAY.test(w.to) || w.from > w.to || w.to < today) continue;
+    const from = Math.max(dayNumber(w.from), first);
+    // One day of slack: the database counts from its own (UTC) date, which can be a day behind.
+    if (from > first + MAX_TRIP_AHEAD_DAYS - 1 || budget <= 0 || out.length >= MAX_TRIP_WINDOWS) break;
+    const to = Math.min(dayNumber(w.to), from + budget - 1);
+    budget -= to - from + 1;
+    out.push({ countryId: w.countryId, from: isoOfDay(from), to: isoOfDay(to) });
+  }
+  return out;
 }
 
 export const windowsOverlap = (a: TripWindow, b: TripWindow) => a.countryId === b.countryId && a.from <= b.to && b.from <= a.to;

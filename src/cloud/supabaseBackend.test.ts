@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { describe, expect, it, vi } from 'vitest';
-import { CloudError, validateMeetup } from './types';
+import { CloudError, localToday, validateMeetup } from './types';
 import { createSupabaseBackend, mapSupabaseError, rowToMeetup, rowToReview } from './supabaseBackend';
 
 type Result = { data?: unknown; error?: { code?: string; message?: string } | null };
@@ -60,7 +60,8 @@ describe('mapSupabaseError', () => {
     [{ code: 'over_email_send_rate_limit' }, 'rate_limited'],
     [{ status: 429 }, 'rate_limited'],
     [{ name: 'AuthRetryableFetchError', message: 'Failed to fetch' }, 'network'],
-    [{ code: '42501', message: 'new row violates row-level security policy' }, 'not_signed_in'],
+    [{ code: '42501', message: 'new row violates row-level security policy' }, 'not_allowed'],
+    [{ code: '23514', message: 'new row violates check constraint' }, 'invalid_input'],
     [{ code: 'PGRST301', message: 'JWT expired' }, 'not_signed_in'],
     [{ code: 'P0001', message: 'review rate limit reached' }, 'rate_limited'],
     [{ code: 'P0001', message: 'partner post limit reached' }, 'too_many_posts'],
@@ -147,8 +148,9 @@ describe('auth', () => {
   it('publishes the trip and reads fellow travellers through database functions', async () => {
     const { client, raw } = fakeClient({ results: { rpc: { data: [{ display_name: 'יוסי', country_id: 'peru', from_date: '2099-01-01', to_date: '2099-01-09' }], error: null } } });
     const b = createSupabaseBackend(client, REDIRECT);
-    await b.publishTrip([{ countryId: 'peru', from: '2099-01-01', to: '2099-01-31' }, { countryId: 'peru', from: '2099-02-01', to: '2099-01-01' }]);
-    expect(raw.rpc).toHaveBeenCalledWith('set_my_trip', { p_windows: [{ country_id: 'peru', from_date: '2099-01-01', to_date: '2099-01-31' }] });
+    const day = (n: number) => localToday(new Date(Date.now() + n * 86_400_000));
+    await b.publishTrip([{ countryId: 'peru', from: day(10), to: day(40) }, { countryId: 'peru', from: day(41), to: day(10) }]);
+    expect(raw.rpc).toHaveBeenCalledWith('set_my_trip', { p_windows: [{ country_id: 'peru', from_date: day(10), to_date: day(40) }] });
     expect(await b.whoElseThere()).toEqual([{ name: 'יוסי', countryId: 'peru', from: '2099-01-01', to: '2099-01-09' }]);
     expect(raw.rpc).toHaveBeenCalledWith('who_else_there');
   });
@@ -201,7 +203,7 @@ describe('reviews', () => {
     await expect(createSupabaseBackend(dup.client, REDIRECT).reportReview('r1', 'spam')).resolves.toBeUndefined();
 
     const bad = fakeClient({ results: { 'reports.insert': { error: { code: '42501', message: 'rls' } } } });
-    await expect(createSupabaseBackend(bad.client, REDIRECT).reportReview('r1', 'spam')).rejects.toMatchObject({ code: 'not_signed_in' });
+    await expect(createSupabaseBackend(bad.client, REDIRECT).reportReview('r1', 'spam')).rejects.toMatchObject({ code: 'not_allowed' });
   });
 
   it('refuses to write when nobody is signed in', async () => {

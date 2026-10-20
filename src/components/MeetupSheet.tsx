@@ -1,10 +1,9 @@
 import { useState } from 'react';
 import { useAuth } from '../cloud/AuthContext';
-import { CloudError, cloudErrorMessages, type Meetup } from '../cloud/types';
+import { cloudErrorText, type Meetup } from '../cloud/types';
 import { MEETUP_PREFIX, formatMeetupTime } from '../cloud/useMeetups';
 import { getCountry } from '../data/countries';
 
-const errorText = (e: unknown) => (e instanceof CloudError ? (e.code === 'unknown' && e.message !== 'unknown' ? e.message : cloudErrorMessages[e.code]) : cloudErrorMessages.unknown);
 
 interface Props {
   meetup: Meetup;
@@ -31,7 +30,7 @@ export default function MeetupSheet({ meetup: m, onChanged, onClose, inline }: P
       await fn();
       await onChanged();
     } catch (e) {
-      setError(errorText(e));
+      setError(cloudErrorText(e));
     } finally {
       setBusy(false);
     }
