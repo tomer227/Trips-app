@@ -9,7 +9,7 @@ A mobile-first, Hebrew (RTL) PWA guide for young Israelis on the post-army "big 
 ```
 npm install
 npm run dev              # dev server; /api/places is served by server/vitePlugin.ts (needs GOOGLE_MAPS_API_KEY in .env.local)
-npm test                 # vitest (202 tests)
+npm test                 # vitest (210 tests)
 npm run build            # tsc -b && vite build -> dist/
 npm run build:functions  # bundles the Firebase function into functions/index.js
 npm run weekly-places    # weekly places report (needs GOOGLE_MAPS_API_KEY)
@@ -21,7 +21,7 @@ npm run weekly-places    # weekly places report (needs GOOGLE_MAPS_API_KEY)
 - `src/places` – Google layer: API client (memory cache only), mapping to the app's `Place`, filters, categories, hotspot model.
 - `server/places.ts` – framework-free proxy for Google Places (key stays server-side, fixed field masks, validation, cache, rate limit). Adapters: `api/places/[action].ts` (Vercel), `netlify/functions/places.ts`, `functions/src/index.ts` (Firebase), `server/vitePlugin.ts` (dev/preview).
 - `src/cloud` – accounts: `CloudBackend` interface, Supabase and in-memory implementations, private sync engine (`sync.ts`), `AuthContext`.
-- `supabase/migrations/0001_init.sql` – schema + Row Level Security; `0002_who_else_there.sql` – "מי עוד שם" (opt-in trip dates, `set_my_trip` / `who_else_there` functions, table closed to direct reads); `0003_partner_board.sql` – "מחפשים שותף" board (`#/partners`: signed-in only, private replies between author and replier, 5 active posts per user, auto-hide after 3 reports). `supabase/setup_all.sql` joins all migrations for a one-paste setup (regenerate with `node scripts/build-supabase-setup.mjs`; a test fails if it is stale). `supabase/rls.test.ts` runs it on Postgres (PGlite).
+- `supabase/migrations/0001_init.sql` – schema + Row Level Security; `0002_who_else_there.sql` – "מי עוד שם" (opt-in trip dates, `set_my_trip` / `who_else_there` functions, table closed to direct reads); `0003_partner_board.sql` – "מחפשים שותף" board (`#/partners`: signed-in only, private replies between author and replier, 5 active posts per user, auto-hide after 3 reports); `0004_hardening.sql` – server-set `created_at`, report rate limit, limits on shared trips against enumeration, trigger functions not callable. `supabase/setup_all.sql` joins all migrations for a one-paste setup (regenerate with `node scripts/build-supabase-setup.mjs`; a test fails if it is stale). `supabase/rls.test.ts` runs it on Postgres (PGlite).
 - `scripts/weekly-places.ts` + `.github/workflows/weekly-places.yml` – weekly report as a GitHub issue.
 - `docs/` – `GO_LIVE.md` (plain-Hebrew 4-step guide for the owner), setup guides: `FIREBASE_DEPLOY.md`, `SUPABASE_SETUP.md`, `GOOGLE_PLACES_SETUP.md`, `WEEKLY_PLACES.md`.
 
@@ -29,6 +29,8 @@ npm run weekly-places    # weekly places report (needs GOOGLE_MAPS_API_KEY)
 - **Never commit or print secrets.** `.env*` is git-ignored (except `.env.example`). The Supabase `anon` key and URL are public by design; the **`service_role` key must never be requested, pasted or used**. The user pastes secrets into the terminal/dashboard themselves.
 - **Google content:** do not store Google place content (names, ratings, hours, photos, coordinates) in the repo, localStorage or the database. Only place IDs may be kept. Show "מידע חיצוני מ־Google" and "Powered by Google" wherever Google data is shown.
 - Google rating and community rating are different things and are always shown separately. A Google place is never called "Israeli hotspot" without community reports.
+- Security headers (CSP etc.) live in `firebase.json` and `netlify.toml`; keep them in sync. A new external host the app talks to must be added to `connect-src`.
+- Stored local data goes through `sanitizeStored` (wrong shape → default), and every page sits in an `ErrorBoundary`. Pages other than Home are lazy-loaded and preloaded after start-up for offline use.
 - UI copy is Hebrew and RTL. Keep the chunky, playful style already in `src/styles.css`.
 - Run `npx tsc -b`, `npm test` and `npm run build` before committing. Commit on branch `claude/travel-app-user-friendly-n8gmzm`.
 - **Ask the user before** anything that changes billing, deletes data, creates/rotates a secret, or is hard to undo.

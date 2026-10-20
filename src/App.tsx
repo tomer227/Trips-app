@@ -1,27 +1,56 @@
+import { Suspense, lazy, useEffect, useState } from 'react';
+import ErrorBoundary from './components/ErrorBoundary';
 import { useRoute } from './router';
 import { usePersistentState } from './storage';
 import { emptyPlan, type TripPlan } from './budget';
 import BottomNav from './components/BottomNav';
 import Home from './pages/Home';
-import RegionPage from './pages/RegionPage';
-import CountryPage from './pages/CountryPage';
-import PlanPage from './pages/PlanPage';
-import ChecklistPage from './pages/ChecklistPage';
-import TipsPage from './pages/TipsPage';
-import PhrasesPage from './pages/PhrasesPage';
-import CurrencyPage from './pages/CurrencyPage';
-import JournalPage from './pages/JournalPage';
-import MorePage from './pages/MorePage';
-import MapPage from './pages/MapPage';
-import HotPage from './pages/HotPage';
-import FaqPage from './pages/FaqPage';
-import AboutPage from './pages/AboutPage';
-import AccountPage from './pages/AccountPage';
-import SafetyPage from './pages/SafetyPage';
-import ShabbatPage from './pages/ShabbatPage';
-import MoneyPage from './pages/MoneyPage';
-import PartnersPage from './pages/PartnersPage';
 import { AuthProvider, useAuth } from './cloud/AuthContext';
+
+// Only the home page ships in the first download; the rest load on demand (and are fetched in the
+// background after start-up so they also work offline, see main.tsx).
+const pageLoaders = {
+  RegionPage: () => import('./pages/RegionPage'),
+  CountryPage: () => import('./pages/CountryPage'),
+  PlanPage: () => import('./pages/PlanPage'),
+  ChecklistPage: () => import('./pages/ChecklistPage'),
+  TipsPage: () => import('./pages/TipsPage'),
+  PhrasesPage: () => import('./pages/PhrasesPage'),
+  CurrencyPage: () => import('./pages/CurrencyPage'),
+  JournalPage: () => import('./pages/JournalPage'),
+  MorePage: () => import('./pages/MorePage'),
+  MapPage: () => import('./pages/MapPage'),
+  HotPage: () => import('./pages/HotPage'),
+  FaqPage: () => import('./pages/FaqPage'),
+  AboutPage: () => import('./pages/AboutPage'),
+  AccountPage: () => import('./pages/AccountPage'),
+  SafetyPage: () => import('./pages/SafetyPage'),
+  ShabbatPage: () => import('./pages/ShabbatPage'),
+  MoneyPage: () => import('./pages/MoneyPage'),
+  PartnersPage: () => import('./pages/PartnersPage'),
+};
+const RegionPage = lazy(pageLoaders.RegionPage);
+const CountryPage = lazy(pageLoaders.CountryPage);
+const PlanPage = lazy(pageLoaders.PlanPage);
+const ChecklistPage = lazy(pageLoaders.ChecklistPage);
+const TipsPage = lazy(pageLoaders.TipsPage);
+const PhrasesPage = lazy(pageLoaders.PhrasesPage);
+const CurrencyPage = lazy(pageLoaders.CurrencyPage);
+const JournalPage = lazy(pageLoaders.JournalPage);
+const MorePage = lazy(pageLoaders.MorePage);
+const MapPage = lazy(pageLoaders.MapPage);
+const HotPage = lazy(pageLoaders.HotPage);
+const FaqPage = lazy(pageLoaders.FaqPage);
+const AboutPage = lazy(pageLoaders.AboutPage);
+const AccountPage = lazy(pageLoaders.AccountPage);
+const SafetyPage = lazy(pageLoaders.SafetyPage);
+const ShabbatPage = lazy(pageLoaders.ShabbatPage);
+const MoneyPage = lazy(pageLoaders.MoneyPage);
+const PartnersPage = lazy(pageLoaders.PartnersPage);
+
+export function preloadPages() {
+  for (const load of Object.values(pageLoaders)) void load().catch(() => undefined);
+}
 
 export default function App() {
   return (
@@ -34,6 +63,7 @@ export default function App() {
 function AppShell() {
   const route = useRoute();
   const { updateAvailable } = useAuth();
+  const online = useOnline();
   const [plan, setPlan] = usePersistentState<TripPlan>('trip-plan', emptyPlan);
 
   const addToTrip = (countryId: string, days: number) =>
@@ -111,8 +141,31 @@ function AppShell() {
           </button>
         </div>
       )}
-      <main className="content">{page}</main>
+      {!online && (
+        <div className="offline-banner" role="status">
+          אין חיבור לאינטרנט. מה ששמרתם במכשיר זמין, וחיפוש מקומות וסנכרון יחזרו כשהחיבור יחזור.
+        </div>
+      )}
+      <main className="content">
+        <ErrorBoundary key={window.location.hash}>
+          <Suspense fallback={<p className="muted page-loading">טוען…</p>}>{page}</Suspense>
+        </ErrorBoundary>
+      </main>
       <BottomNav route={route} />
     </div>
   );
+}
+
+function useOnline(): boolean {
+  const [online, setOnline] = useState(() => navigator.onLine);
+  useEffect(() => {
+    const update = () => setOnline(navigator.onLine);
+    window.addEventListener('online', update);
+    window.addEventListener('offline', update);
+    return () => {
+      window.removeEventListener('online', update);
+      window.removeEventListener('offline', update);
+    };
+  }, []);
+  return online;
 }

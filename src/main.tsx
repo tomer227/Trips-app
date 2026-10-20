@@ -1,7 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import '@fontsource-variable/rubik';
-import App from './App';
+import App, { preloadPages } from './App';
 import './styles.css';
 import './features.css';
 
@@ -17,7 +17,10 @@ if ('serviceWorker' in navigator && import.meta.env.PROD) {
       .register('./sw.js')
       .then(() => {
         // Warm up the lazily-loaded map so it's cached for offline use even if the map wasn't opened yet.
-        setTimeout(() => void import('world-atlas/countries-50m.json'), 3000);
+        setTimeout(() => {
+          void import('world-atlas/countries-50m.json');
+          preloadPages();
+        }, 3000);
       })
       .catch(() => {
         // Offline support is a nice-to-have; ignore registration failures.
