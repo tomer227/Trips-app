@@ -1,6 +1,7 @@
 import { countries } from './data/countries';
 import { calcTrip, type TripPlan } from './budget';
 import type { Expense } from './journal';
+import { myShareUsd } from './split';
 
 /** "How long will the money last?" – what the traveller has, versus what they actually spend. */
 export interface MoneySettings {
@@ -56,7 +57,7 @@ export function addDays(iso: string, days: number): string {
 /** Average spend per logged day over the most recent days, so an expensive first week doesn't skew it forever. */
 export function recentBurn(expenses: Expense[], recentDays = RECENT_DAYS): { perDay: number; days: number } {
   const byDay = new Map<string, number>();
-  for (const e of expenses) byDay.set(e.date, (byDay.get(e.date) ?? 0) + e.amountUsd);
+  for (const e of expenses) byDay.set(e.date, (byDay.get(e.date) ?? 0) + myShareUsd(e));
   const recent = [...byDay.keys()].sort().slice(-recentDays);
   if (recent.length === 0) return { perDay: 0, days: 0 };
   const total = recent.reduce((s, d) => s + (byDay.get(d) ?? 0), 0);
@@ -65,7 +66,8 @@ export function recentBurn(expenses: Expense[], recentDays = RECENT_DAYS): { per
 
 export function calcRunway(input: { budgetUsd: number; expenses: Expense[]; plan: TripPlan; today: string; startDate?: string }): Runway {
   const { budgetUsd, expenses, plan, today } = input;
-  const spentUsd = expenses.reduce((s, e) => s + e.amountUsd, 0);
+  // Shared expenses count only the traveller's part (partners settle the rest).
+  const spentUsd = expenses.reduce((s, e) => s + myShareUsd(e), 0);
   const remainingUsd = Math.max(0, budgetUsd - spentUsd);
   const totals = calcTrip(plan);
 

@@ -2465,3 +2465,37 @@ textarea {
     break-before: auto;
   }
 }
+
+/* ───────────── Splitting expenses ───────────── */
+
+.partners-split {
+  margin-top: 12px;
+}
+
+.partners-split summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.partner-chips {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.partner-chips .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.settle ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}

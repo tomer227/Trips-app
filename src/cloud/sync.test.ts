@@ -47,6 +47,11 @@ describe('unionValue', () => {
       entries: [{ id: 'e1' }, { id: 'e2' }],
       expenses: [{ id: 'x1' }],
     });
+    expect(unionValue('journal', { entries: [], expenses: [], partners: ['דנה'] }, { entries: [], expenses: [], partners: ['יוסי', 'דנה'] })).toEqual({
+      entries: [],
+      expenses: [],
+      partners: ['דנה', 'יוסי'],
+    });
     expect(unionValue('checklist', { a: true, b: false }, { b: true, c: false })).toEqual({ a: true, b: true, c: false });
   });
 });

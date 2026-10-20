@@ -18,6 +18,7 @@ import {
 } from '../journal';
 import { usePersistentState } from '../storage';
 import PageHeader from '../components/PageHeader';
+import { ME, cleanPartnerName, settle } from '../split';
 
 type Tab = 'memories' | 'expenses';
 
@@ -204,13 +205,32 @@ function Expenses({ journal, setJournal, defaultCountry, plan }: SectionProps & 
   const [category, setCategory] = useState<ExpenseCategory>('food');
   const [date, setDate] = useState(today());
   const [note, setNote] = useState('');
+  const partners = journal.partners ?? [];
+  const [paidBy, setPaidBy] = useState(ME);
+  const [split, setSplit] = useState<string[]>([ME]);
+  const people = [ME, ...partners];
+  // Partners can be removed after being picked; never keep a name that is gone.
+  const activeSplit = split.filter((p) => people.includes(p));
+  const activePaidBy = people.includes(paidBy) ? paidBy : ME;
+  const toggleSplit = (who: string) => setSplit((s) => (s.includes(who) ? s.filter((p) => p !== who) : [...s, who]));
 
   const numeric = Number(amount);
   const amountUsd = numeric > 0 ? convert(numeric, currency, 'USD', rates) : null;
 
   const add = () => {
-    if (amountUsd === null) return;
-    const expense: Expense = { id: newId(), date, countryId, category, amount: numeric, currency, amountUsd, note: note.trim() };
+    if (amountUsd === null || activeSplit.length === 0) return;
+    const shared = activeSplit.length > 0 && !(activeSplit.length === 1 && activeSplit[0] === activePaidBy);
+    const expense: Expense = {
+      id: newId(),
+      date,
+      countryId,
+      category,
+      amount: numeric,
+      currency,
+      amountUsd,
+      note: note.trim(),
+      ...(shared || activePaidBy !== ME ? { paidBy: activePaidBy, split: activeSplit.length ? activeSplit : [ME] } : {}),
+    };
     setJournal((j) => ({ ...j, expenses: [...j.expenses, expense] }));
     setAmount('');
     setNote('');
@@ -221,6 +241,7 @@ function Expenses({ journal, setJournal, defaultCountry, plan }: SectionProps & 
   };
 
   const summary = summarizeExpenses(journal.expenses, plan);
+  const transfers = settle(journal.expenses);
   const totalIls = convert(summary.totalUsd, 'USD', 'ILS', rates) ?? 0;
   const maxCat = Math.max(1, ...summary.byCategory.map((c) => c.usd));
 
@@ -273,10 +294,34 @@ function Expenses({ journal, setJournal, defaultCountry, plan }: SectionProps & 
           <span>הערה (לא חובה)</span>
           <input type="text" placeholder="למשל: הוסטל בצ׳יאנג מאי" value={note} onChange={(e) => setNote(e.target.value)} />
         </label>
-        <button className="btn" onClick={add} disabled={amountUsd === null}>
+        {partners.length > 0 && (
+          <>
+            <label>
+              <span>מי שילם?</span>
+              <select value={activePaidBy} onChange={(e) => setPaidBy(e.target.value)}>
+                {people.map((p) => (
+                  <option key={p} value={p}>
+                    {personName(p)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="category-picker" role="group" aria-label="על מי ההוצאה?">
+              <span className="muted small">על מי?</span>
+              {people.map((p) => (
+                <button key={p} aria-pressed={activeSplit.includes(p)} className={`chip ${activeSplit.includes(p) ? 'active' : ''}`} onClick={() => toggleSplit(p)}>
+                  {personName(p)}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+        <button className="btn" onClick={add} disabled={amountUsd === null || activeSplit.length === 0}>
           + הוספת הוצאה
         </button>
       </div>
+
+      <Partners partners={partners} setPartners={(next) => setJournal((j) => ({ ...j, partners: next }))} />
 
       {journal.expenses.length > 0 && (
         <>
@@ -303,6 +348,39 @@ function Expenses({ journal, setJournal, defaultCountry, plan }: SectionProps & 
               ))}
             </ul>
           </div>
+
+          {partners.length > 0 && (
+            <>
+              <h2 className="section-title">🤝 מי חייב למי</h2>
+              <div className="card settle">
+                {transfers.length === 0 ? (
+                  <p className="muted">הכול מאוזן, אף אחד לא חייב לאף אחד.</p>
+                ) : (
+                  <ul>
+                    {transfers.map((t) => (
+                      <li key={`${t.from}-${t.to}`}>
+                        {t.from === ME ? (
+                          <>
+                            אתם מעבירים ל<strong>{t.to}</strong>
+                          </>
+                        ) : t.to === ME ? (
+                          <>
+                            <strong>{t.from}</strong> מעביר/ה לכם
+                          </>
+                        ) : (
+                          <>
+                            <strong>{t.from}</strong> מעביר/ה ל<strong>{t.to}</strong>
+                          </>
+                        )}
+                        : <strong dir="ltr">{formatUsd(t.usd)}</strong>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <p className="muted small">הסיכום למעלה ותקציב הטיול כוללים רק את החלק שלכם.</p>
+              </div>
+            </>
+          )}
 
           <h2 className="section-title">מול התכנון (לפי יום)</h2>
           <ul className="country-compare">
@@ -342,6 +420,7 @@ function Expenses({ journal, setJournal, defaultCountry, plan }: SectionProps & 
                     <strong>{e.note || categories[e.category].label}</strong>
                     <span className="muted small">
                       {formatDate(e.date)} · {c?.flag} {c?.name}
+                      {e.split && ` · שילם/ה: ${personName(e.paidBy ?? ME)}, מתחלקים ${e.split.length}`}
                     </span>
                   </span>
                   <span className="expense-amount">
@@ -360,3 +439,44 @@ function Expenses({ journal, setJournal, defaultCountry, plan }: SectionProps & 
     </>
   );
 }
+
+const personName = (who: string) => (who === ME ? 'אני' : who);
+
+/** Travel partners to split expenses with. Names stay on the device (and in private sync). */
+function Partners({ partners, setPartners }: { partners: string[]; setPartners: (next: string[]) => void }) {
+  const [name, setName] = useState('');
+  const add = () => {
+    const clean = cleanPartnerName(name, partners);
+    if (!clean || partners.length >= 10) return;
+    setPartners([...partners, clean]);
+    setName('');
+  };
+  return (
+    <details className="card partners-split">
+      <summary>🤝 מטיילים עם עוד מישהו? מתחלקים בהוצאות</summary>
+      <p className="muted small">הוסיפו שותפים, ובכל הוצאה בחרו מי שילם ועל מי היא. נחשב לכם מי חייב למי.</p>
+      {partners.length > 0 && (
+        <ul className="partner-chips">
+          {partners.map((p) => (
+            <li key={p} className="chip">
+              {p}
+              <button className="icon-btn" onClick={() => setPartners(partners.filter((x) => x !== p))} aria-label={`הסרת ${p}`}>
+                ✕
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="form-row">
+        <label className="grow">
+          <span>שם</span>
+          <input type="text" maxLength={20} placeholder="למשל: דנה" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} />
+        </label>
+        <button className="btn btn-secondary" onClick={add} disabled={!cleanPartnerName(name, partners) || partners.length >= 10}>
+          הוספה
+        </button>
+      </div>
+    </details>
+  );
+}
+

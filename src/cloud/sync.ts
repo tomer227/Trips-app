@@ -64,7 +64,12 @@ export function unionValue(key: SyncKey, a: unknown, b: unknown): unknown {
     case 'journal': {
       const ja = isObj(a) ? a : {};
       const jb = isObj(b) ? b : {};
-      return { entries: unionById(arr(ja.entries), arr(jb.entries)), expenses: unionById(arr(ja.expenses), arr(jb.expenses)) };
+      const partners = [...new Set([...arr(ja.partners), ...arr(jb.partners)])];
+      return {
+        entries: unionById(arr(ja.entries), arr(jb.entries)),
+        expenses: unionById(arr(ja.expenses), arr(jb.expenses)),
+        ...(partners.length ? { partners } : {}),
+      };
     }
     case 'checklist': {
       const out: Record<string, boolean> = {};

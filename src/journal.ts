@@ -1,5 +1,6 @@
 import { getCountry } from './data/countries';
 import type { TripPlan } from './budget';
+import { myShareUsd } from './split';
 
 export type Mood = '🤩' | '😊' | '😐' | '😩';
 
@@ -24,11 +25,17 @@ export interface Expense {
   /** USD value at the time of entry, so totals don't drift when rates change */
   amountUsd: number;
   note: string;
+  /** Who paid: "me" (default) or a partner's name */
+  paidBy?: string;
+  /** Who shares the cost, "me" included when it is partly mine. Missing = only mine. */
+  split?: string[];
 }
 
 export interface Journal {
   entries: JournalEntry[];
   expenses: Expense[];
+  /** Names of travel partners to split expenses with */
+  partners?: string[];
 }
 
 export const emptyJournal: Journal = { entries: [], expenses: [] };
@@ -78,15 +85,17 @@ export interface ExpenseSummary {
 /** Sum expenses, split by category and country, and compare to the planned daily budget. */
 export function summarizeExpenses(expenses: Expense[], plan: TripPlan): ExpenseSummary {
   const styleIndex = plan.style === 'low' ? 0 : 1;
-  const totalUsd = expenses.reduce((s, e) => s + e.amountUsd, 0);
+  // Budgets count what the traveller actually spent: their own part of shared expenses.
+  const totalUsd = expenses.reduce((s, e) => s + myShareUsd(e), 0);
   const allDays = new Set(expenses.map((e) => e.date));
 
   const catMap = new Map<ExpenseCategory, number>();
   const countryMap = new Map<string, { usd: number; days: Set<string> }>();
   for (const e of expenses) {
-    catMap.set(e.category, (catMap.get(e.category) ?? 0) + e.amountUsd);
+    const mine = myShareUsd(e);
+    catMap.set(e.category, (catMap.get(e.category) ?? 0) + mine);
     const c = countryMap.get(e.countryId) ?? { usd: 0, days: new Set<string>() };
-    c.usd += e.amountUsd;
+    c.usd += mine;
     c.days.add(e.date);
     countryMap.set(e.countryId, c);
   }

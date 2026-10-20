@@ -1,5 +1,6 @@
 import { getCountry } from './data/countries';
 import type { Journal, JournalEntry } from './journal';
+import { myShareUsd } from './split';
 
 export interface BookChapter {
   countryId: string;
@@ -20,6 +21,8 @@ export interface TripBook {
   entries: number;
   spentUsd: number;
 }
+
+const safe = (n: number) => (Number.isFinite(n) ? n : 0);
 
 const dayDiff = (from: string, to: string) => Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
 
@@ -59,7 +62,7 @@ export function buildTripBook(journal: Journal): TripBook {
     if (own.length === 0) continue;
     const inside = own.find((c) => c.from <= expense.date && expense.date <= c.to);
     const target = inside ?? own.reduce((best, c) => (Math.abs(dayDiff(c.from, expense.date)) < Math.abs(dayDiff(best.from, expense.date)) ? c : best));
-    target.spentUsd += Number.isFinite(expense.amountUsd) ? expense.amountUsd : 0;
+    target.spentUsd += safe(myShareUsd(expense));
   }
 
   const from = entries[0]?.date;
@@ -71,6 +74,6 @@ export function buildTripBook(journal: Journal): TripBook {
     days: from && to ? dayDiff(from, to) + 1 : 0,
     countries: new Set(entries.map((e) => e.countryId)).size,
     entries: entries.length,
-    spentUsd: journal.expenses.reduce((sum, e) => sum + (Number.isFinite(e.amountUsd) ? e.amountUsd : 0), 0),
+    spentUsd: journal.expenses.reduce((sum, e) => sum + safe(myShareUsd(e)), 0),
   };
 }
