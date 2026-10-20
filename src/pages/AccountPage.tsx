@@ -13,6 +13,19 @@ export default function AccountPage() {
     <>
       <PageHeader title="👤 החשבון שלי" subtitle="התחברו כדי לשמור את הטיול, היומן והצ׳קליסט בענן, ולפרסם ביקורות לקהילה." back={{ href: '#/more', label: 'עוד' }} />
 
+      {auth.linkError && auth.status !== 'in' && (
+        <div className="card notice" role="alert">
+          <strong>{auth.linkError === 'expired' ? 'הקישור מהמייל כבר לא בתוקף' : 'לא הצלחנו להשלים את הפעולה מהקישור'}</strong>
+          <p className="small">
+            {auth.linkError === 'expired'
+              ? 'קישורים מהמייל עובדים פעם אחת ולזמן מוגבל. אם כבר אישרתם את החשבון, פשוט התחברו. אם לא, הירשמו שוב או בקשו קישור חדש לאיפוס סיסמה.'
+              : 'נסו שוב בעוד רגע. אם זה חוזר, בקשו קישור חדש.'}
+          </p>
+          <button className="btn btn-secondary btn-small" onClick={auth.clearLinkError}>
+            הבנתי
+          </button>
+        </div>
+      )}
       {auth.status === 'loading' && <p className="muted">טוען…</p>}
       {auth.status === 'unconfigured' && <Unconfigured />}
       {auth.status === 'out' && (auth.recovering ? <NewPassword /> : <SignedOut />)}

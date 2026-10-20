@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { takeAuthLinkError, type AuthLinkError } from './authLink';
 import { getCloudBackend } from './index';
 import { startSync, wipeSyncedData, type SyncEngine, type SyncStatus } from './sync';
 import type { CloudBackend, CloudUser } from './types';
@@ -18,6 +19,9 @@ interface AuthValue {
   /** The user opened a password-reset link and must choose a new password */
   recovering: boolean;
   finishRecovery(): void;
+  /** The user arrived from a confirmation or reset link that failed */
+  linkError: AuthLinkError | null;
+  clearLinkError(): void;
   sync: SyncStatus;
   /** Another device changed the data while this one was open */
   updateAvailable: boolean;
@@ -47,6 +51,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>('loading');
   const [user, setUser] = useState<CloudUser | null>(null);
   const [recovering, setRecovering] = useState(false);
+  const [linkError, setLinkError] = useState<AuthLinkError | null>(() => (typeof window === 'undefined' ? null : takeAuthLinkError()));
   const [sync, setSync] = useState<SyncStatus>({ state: 'idle' });
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const engine = useRef<SyncEngine | null>(null);
@@ -143,6 +148,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       backend,
       recovering,
       finishRecovery: () => setRecovering(false),
+      linkError,
+      clearLinkError: () => setLinkError(null),
       sync,
       updateAvailable,
       syncNow: async () => {
@@ -151,7 +158,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signOut,
       setUser,
     }),
-    [status, user, backend, recovering, sync, updateAvailable, signOut],
+    [status, user, backend, recovering, linkError, sync, updateAvailable, signOut],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -2571,3 +2571,13 @@ textarea {
 .meetup-location select {
   flex: 1 1 180px;
 }
+
+/* ─── A notice that needs reading (e.g. an expired email link) ─── */
+.card.notice {
+  border-color: var(--accent);
+  box-shadow: 0 3px 0 var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+}
+.card.notice p {
+  margin: 0.35rem 0 0.6rem;
+}
