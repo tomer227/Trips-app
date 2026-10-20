@@ -341,6 +341,48 @@ describe('hardening (0004)', () => {
   });
 });
 
+describe('moderation (0005)', () => {
+  const G = '77777777-7777-4777-8777-777777777777';
+  const M = '88888888-8888-4888-8888-888888888888';
+  type Q = { kind: string; id: string; body: string; author: string; hidden: boolean; reports: string; reasons: string[] };
+
+  beforeAll(async () => {
+    await addUser(G, 'גיל');
+    await addUser(M, 'מודה');
+    await db.query('insert into public.moderators (user_id) values ($1)', [M]);
+  });
+
+  it('is closed to everyone who is not a moderator', async () => {
+    expect((await as<{ m: boolean }>(G, 'select public.is_moderator() as m'))[0].m).toBe(false);
+    expect((await as<{ m: boolean }>(M, 'select public.is_moderator() as m'))[0].m).toBe(true);
+    await expect(as(G, 'select * from public.mod_queue()')).rejects.toThrow(/not a moderator/);
+    await expect(as(null, 'select * from public.mod_queue()')).rejects.toThrow(/permission denied/);
+    await expect(as(G, "select public.mod_act('review', gen_random_uuid(), 'delete')")).rejects.toThrow(/not a moderator/);
+    await expect(as(G, 'select * from public.moderators')).rejects.toThrow(/permission denied/);
+    await expect(as(G, 'insert into public.moderators (user_id) values ($1)', [G])).rejects.toThrow(/permission denied/);
+  });
+
+  it('shows reported content with reasons, and restores, hides or deletes it', async () => {
+    const [{ id }] = await as<{ id: string }>(G, "insert into public.reviews (place_id, stars, body, visited) values ('mod-1', 1, 'ספאם ספאם', '2026-01') returning id");
+    for (const [uid, reason] of [[A, 'spam'], [C, ''], [D, 'פרסומת']] as const) await as(uid, 'insert into public.reports (review_id, reason) values ($1, $2)', [id, reason]);
+    const queue = await as<Q>(M, 'select * from public.mod_queue()');
+    const row = queue.find((q) => q.id === id)!;
+    expect(row).toMatchObject({ kind: 'review', body: 'ספאם ספאם', author: 'גיל', hidden: true });
+    expect(Number(row.reports)).toBe(3);
+    expect(row.reasons.sort()).toEqual(['spam', 'פרסומת'].sort());
+
+    await as(M, "select public.mod_act('review', $1, 'restore')", [id]);
+    expect(await as(B, 'select id from public.reviews_public where id = $1', [id])).toHaveLength(1);
+    expect((await as<Q>(M, 'select * from public.mod_queue()')).some((q) => q.id === id)).toBe(false);
+
+    await as(M, "select public.mod_act('review', $1, 'hide')", [id]);
+    expect(await as(B, 'select id from public.reviews_public where id = $1', [id])).toEqual([]);
+    await as(M, "select public.mod_act('review', $1, 'delete')", [id]);
+    expect((await db.query('select 1 from public.reviews where id = $1', [id])).rows).toEqual([]);
+    await expect(as(M, "select public.mod_act('review', $1, 'nuke')", [id])).rejects.toThrow(/invalid action/);
+  });
+});
+
 describe('account deletion', () => {
   it('lets a user delete their account and everything attached, and nobody else', async () => {
     await expect(as(null, 'select public.delete_my_account()')).rejects.toThrow(/permission denied/);

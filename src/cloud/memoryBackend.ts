@@ -8,6 +8,7 @@ import {
   type CloudReview,
   type CloudUser,
   type FellowTraveler,
+  type ModItem,
   type NewReview,
   type PartnerPost,
   type PartnerReply,
@@ -36,12 +37,14 @@ interface MemState {
   trips: Record<string, TripWindow[]>;
   partnerPosts: (PartnerPost & { hidden?: boolean })[];
   partnerReplies: PartnerReply[];
-  partnerReports: { postId: string; reporterId: string }[];
+  partnerReports: { postId: string; reporterId: string; reason?: string }[];
+  /** User ids that may moderate (tests and VITE_CLOUD=memory set it directly). */
+  moderators: string[];
 }
 
 const KEY = 'memory-cloud';
 
-const empty = (): MemState => ({ users: [], sessionUserId: null, userData: {}, reviews: [], reports: [], trips: {}, partnerPosts: [], partnerReplies: [], partnerReports: [] });
+const empty = (): MemState => ({ users: [], sessionUserId: null, userData: {}, reviews: [], reports: [], trips: {}, partnerPosts: [], partnerReplies: [], partnerReports: [], moderators: [] });
 
 /**
  * A complete in-memory stand-in for the cloud, persisted in localStorage so it survives reloads.
@@ -302,13 +305,55 @@ export function createMemoryBackend(storage: Pick<Storage, 'getItem' | 'setItem'
       save();
     },
 
-    async reportPartnerPost(id) {
+    async reportPartnerPost(id, reason) {
       const u = requireUser();
       if (state.partnerReports.some((r) => r.postId === id && r.reporterId === u.id)) return;
-      state.partnerReports.push({ postId: id, reporterId: u.id });
+      state.partnerReports.push({ postId: id, reporterId: u.id, reason });
       if (new Set(state.partnerReports.filter((r) => r.postId === id).map((r) => r.reporterId)).size >= 3) {
         const post = state.partnerPosts.find((p) => p.id === id);
         if (post) post.hidden = true;
+      }
+      save();
+    },
+
+    async isModerator() {
+      state = load();
+      const u = current();
+      return !!u && state.moderators.includes(u.id);
+    },
+
+    async moderationQueue() {
+      const u = requireUser();
+      if (!state.moderators.includes(u.id)) throw new CloudError('not_signed_in');
+      const name = (id: string) => state.users.find((x) => x.id === id)?.displayName ?? 'מטייל';
+      const items: ModItem[] = [
+        ...state.reviews.map((r) => {
+          const reps = state.reports.filter((x) => x.reviewId === r.id);
+          return { kind: 'review' as const, id: r.id, text: r.text, author: name(r.userId), subject: r.placeId, hidden: !!r.hidden, reports: reps.length, reasons: reps.map((x) => x.reason).filter(Boolean), createdAt: r.createdAt };
+        }),
+        ...state.partnerPosts.map((p) => {
+          const reps = state.partnerReports.filter((x) => x.postId === p.id);
+          return { kind: 'post' as const, id: p.id, text: p.text, author: name(p.userId), subject: p.countryId, hidden: !!p.hidden, reports: reps.length, reasons: reps.map((x) => x.reason ?? '').filter(Boolean), createdAt: p.createdAt };
+        }),
+      ];
+      return items.filter((i) => i.hidden || i.reports > 0).sort((a, b) => Number(b.hidden) - Number(a.hidden) || b.reports - a.reports || b.createdAt - a.createdAt);
+    },
+
+    async moderate(kind, id, action) {
+      const u = requireUser();
+      if (!state.moderators.includes(u.id)) throw new CloudError('not_signed_in');
+      const list = kind === 'review' ? state.reviews : state.partnerPosts;
+      const item = list.find((x) => x.id === id);
+      if (!item) return;
+      if (action === 'delete') {
+        if (kind === 'review') state.reviews = state.reviews.filter((x) => x.id !== id);
+        else state.partnerPosts = state.partnerPosts.filter((x) => x.id !== id);
+      } else {
+        item.hidden = action === 'hide';
+        if (action === 'restore') {
+          if (kind === 'review') state.reports = state.reports.filter((x) => x.reviewId !== id);
+          else state.partnerReports = state.partnerReports.filter((x) => x.postId !== id);
+        }
       }
       save();
     },

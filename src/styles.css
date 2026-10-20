@@ -2499,3 +2499,36 @@ textarea {
   display: grid;
   gap: 6px;
 }
+
+/* ───────────── Moderation ───────────── */
+
+.mod-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.mod-item.is-hidden {
+  border-inline-start: 6px solid #b42318;
+}
+
+.mod-meta,
+.mod-text {
+  margin: 0 0 6px;
+}
+
+.mod-text {
+  white-space: pre-wrap;
+}
+
+.mod-hidden {
+  color: #b42318;
+}
+
+@media (prefers-color-scheme: dark) {
+  .mod-hidden {
+    color: #fca5a5;
+  }
+}

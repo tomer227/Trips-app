@@ -157,4 +157,26 @@ describe('memory backend: partner board', () => {
     await b.deletePartnerPost(post.id);
     expect(await b.listPartnerReplies()).toEqual([]);
   });
+
+  it('lets moderators see reported content and restore or delete it, and nobody else', async () => {
+    const s = store();
+    const b = createMemoryBackend(s);
+    await b.signUp({ email: 'a@b.co', password: 'password123', displayName: 'דנה' });
+    const r = await b.saveReview(review('mod-place', { text: 'ספאם' }));
+    await b.signOut();
+    await b.signUp({ email: 'c@d.co', password: 'password123', displayName: 'יוסי' });
+    await b.reportReview(r.id, 'פרסומת');
+    expect(await b.isModerator()).toBe(false);
+    expect(await code(b.moderationQueue())).toBe('not_signed_in');
+
+    const state = JSON.parse(s.getItem('memory-cloud')!);
+    state.moderators = [state.sessionUserId];
+    s.setItem('memory-cloud', JSON.stringify(state));
+    expect(await b.isModerator()).toBe(true);
+    expect((await b.moderationQueue()).map((i) => [i.kind, i.text, i.author, i.reports, i.reasons])).toEqual([['review', 'ספאם', 'דנה', 1, ['פרסומת']]]);
+    await b.moderate('review', r.id, 'restore');
+    expect(await b.moderationQueue()).toEqual([]);
+    await b.moderate('review', r.id, 'delete');
+    expect(await b.listReviews('mod-place')).toEqual([]);
+  });
 });

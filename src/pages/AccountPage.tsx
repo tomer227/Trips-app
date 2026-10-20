@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import PageHeader from '../components/PageHeader';
 import { useAuth } from '../cloud/AuthContext';
 import { messageOf } from '../cloud/useCloudReviews';
@@ -174,6 +174,18 @@ function SignedIn() {
   const [unsynced, setUnsynced] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [moderator, setModerator] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    backend
+      ?.isModerator()
+      .then((m) => alive && setModerator(m))
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [backend, user?.id]);
 
   if (!user || !backend) return null;
 
@@ -233,6 +245,12 @@ function SignedIn() {
           🔄 סנכרון עכשיו
         </button>
       </div>
+
+      {moderator && (
+        <a className="btn btn-secondary btn-block" href="#/moderation">
+          🛡️ ניהול דיווחים
+        </a>
+      )}
 
       <form className="card form-grid" onSubmit={saveName}>
         <label>

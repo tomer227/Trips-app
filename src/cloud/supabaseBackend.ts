@@ -8,6 +8,7 @@ import {
   type CloudBackend,
   type CloudReview,
   type CloudUser,
+  type ModKind,
   type NewPartnerPost,
   type NewReview,
   type PartnerKind,
@@ -359,6 +360,37 @@ export function createSupabaseBackend(client: SupabaseClient, redirectTo: () => 
       const { error } = await client.from('partner_reports').insert({ post_id: id, reporter_id: user.id, reason: reason.slice(0, 500) });
       // 23505: this user already reported the post – that is fine.
       if (error && String(error.code) !== '23505') throw mapSupabaseError(error);
+    },
+
+    async isModerator() {
+      if (!(await backend.getUser())) return false;
+      const { data, error } = await client.rpc('is_moderator');
+      if (error) throw mapSupabaseError(error);
+      return data === true;
+    },
+
+    async moderationQueue() {
+      await requireUser();
+      const { data, error } = await client.rpc('mod_queue');
+      if (error) throw mapSupabaseError(error);
+      type Row = { kind: ModKind; id: string; body: string; author: string | null; subject: string; hidden: boolean; reports: number | string; reasons: string[] | null; created_at: string };
+      return ((data ?? []) as Row[]).map((r) => ({
+        kind: r.kind,
+        id: r.id,
+        text: r.body,
+        author: r.author ?? 'מטייל',
+        subject: r.subject,
+        hidden: r.hidden,
+        reports: Number(r.reports) || 0,
+        reasons: r.reasons ?? [],
+        createdAt: Date.parse(r.created_at),
+      }));
+    },
+
+    async moderate(kind, id, action) {
+      await requireUser();
+      const { error } = await client.rpc('mod_act', { p_kind: kind, p_id: id, p_action: action });
+      if (error) throw mapSupabaseError(error);
     },
   };
 

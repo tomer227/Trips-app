@@ -155,6 +155,24 @@ export function validatePartnerPost(p: NewPartnerPost, today = new Date().toISOS
   return null;
 }
 
+/* ─── Moderation ─── */
+
+export type ModKind = 'review' | 'post';
+export type ModAction = 'restore' | 'hide' | 'delete';
+
+export interface ModItem {
+  kind: ModKind;
+  id: string;
+  text: string;
+  author: string;
+  /** Google place id for a review, country id for a partner post */
+  subject: string;
+  hidden: boolean;
+  reports: number;
+  reasons: string[];
+  createdAt: number;
+}
+
 export type AuthEvent = 'SIGNED_IN' | 'SIGNED_OUT' | 'PASSWORD_RECOVERY' | 'USER_UPDATED' | 'INITIAL';
 
 export interface CloudBackend {
@@ -195,6 +213,12 @@ export interface CloudBackend {
   listPartnerReplies(): Promise<PartnerReply[]>;
   deletePartnerReply(id: string): Promise<void>;
   reportPartnerPost(id: string, reason: string): Promise<void>;
+
+  /** True for users listed in public.moderators (set from the dashboard). */
+  isModerator(): Promise<boolean>;
+  /** Hidden or reported reviews and partner posts, hidden first. Moderators only. */
+  moderationQueue(): Promise<ModItem[]>;
+  moderate(kind: ModKind, id: string, action: ModAction): Promise<void>;
 }
 
 /** The database (0004_hardening.sql) accepts at most 15 current stops. */

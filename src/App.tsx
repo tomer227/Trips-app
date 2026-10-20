@@ -29,6 +29,7 @@ const pageLoaders = {
   MoneyPage: () => import('./pages/MoneyPage'),
   PartnersPage: () => import('./pages/PartnersPage'),
   BookPage: () => import('./pages/BookPage'),
+  ModerationPage: () => import('./pages/ModerationPage'),
 };
 const RegionPage = lazy(pageLoaders.RegionPage);
 const CountryPage = lazy(pageLoaders.CountryPage);
@@ -49,6 +50,7 @@ const ShabbatPage = lazy(pageLoaders.ShabbatPage);
 const MoneyPage = lazy(pageLoaders.MoneyPage);
 const PartnersPage = lazy(pageLoaders.PartnersPage);
 const BookPage = lazy(pageLoaders.BookPage);
+const ModerationPage = lazy(pageLoaders.ModerationPage);
 
 export function preloadPages() {
   for (const load of Object.values(pageLoaders)) void load().catch(() => undefined);
@@ -131,6 +133,9 @@ function AppShell() {
       break;
     case 'book':
       page = <BookPage />;
+      break;
+    case 'moderation':
+      page = <ModerationPage />;
       break;
     default:
       page = <Home plan={plan} />;

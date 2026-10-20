@@ -239,4 +239,15 @@ describe('partner board', () => {
     await expect(b.replyToPartnerPost('p1', 'גם אני')).rejects.toMatchObject({ code: 'already_replied' });
     await expect(b.reportPartnerPost('p1', 'spam')).resolves.toBeUndefined();
   });
+
+  it('reads the moderation queue and sends moderator actions through the database functions', async () => {
+    const rows = [{ kind: 'review', id: 'r1', body: 'ספאם', author: null, subject: 'place', hidden: true, reports: '3', reasons: null, created_at: '2026-10-01T00:00:00Z' }];
+    const { client, raw } = fakeClient({ results: { rpc: { data: rows, error: null } } });
+    const b = createSupabaseBackend(client, REDIRECT);
+    expect(await b.moderationQueue()).toEqual([{ kind: 'review', id: 'r1', text: 'ספאם', author: 'מטייל', subject: 'place', hidden: true, reports: 3, reasons: [], createdAt: Date.parse('2026-10-01T00:00:00Z') }]);
+    expect(raw.rpc).toHaveBeenCalledWith('mod_queue');
+    await b.moderate('post', 'p1', 'restore');
+    expect(raw.rpc).toHaveBeenCalledWith('mod_act', { p_kind: 'post', p_id: 'p1', p_action: 'restore' });
+  });
 });
+
