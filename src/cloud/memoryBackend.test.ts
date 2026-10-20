@@ -120,3 +120,41 @@ describe('memory backend', () => {
     expect(await code(b.publishTrip([]))).toBe('not_signed_in');
   });
 });
+
+describe('memory backend: partner board', () => {
+  const memStore = () => {
+    const m = new Map<string, string>();
+    return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v) };
+  };
+  const errCode = (p: Promise<unknown>) => p.then(() => 'ok', (e: { code?: string }) => e.code);
+  const ad = { countryId: 'peru', from: '2099-03-01', to: '2099-03-10', kind: 'trek' as const, text: 'מחפשים שותפים לסלקנטאי' };
+
+  it('keeps replies private between the author and the replier, and hides reported posts', async () => {
+    const b = createMemoryBackend(memStore());
+    expect(await errCode(b.listPartnerPosts())).toBe('not_signed_in');
+
+    await b.signUp({ email: 'a@b.co', password: 'password123', displayName: 'דנה' });
+    const post = await b.createPartnerPost(ad);
+    await b.createPartnerPost({ ...ad, from: '2000-01-01', to: '2000-01-02' }).catch(() => undefined); // past dates are refused
+    expect(await errCode(b.replyToPartnerPost(post.id, 'עונה לעצמי'))).toBe('unknown');
+    await b.signOut();
+
+    await b.signUp({ email: 'c@d.co', password: 'password123', displayName: 'יוסי' });
+    expect((await b.listPartnerPosts()).map((p) => p.author)).toEqual(['דנה']);
+    await b.replyToPartnerPost(post.id, 'גם אני! וואטסאפ');
+    expect(await errCode(b.replyToPartnerPost(post.id, 'שוב'))).toBe('already_replied');
+    await b.signOut();
+
+    await b.signUp({ email: 'e@f.co', password: 'password123', displayName: 'נועה' });
+    expect(await b.listPartnerReplies()).toEqual([]); // a third user sees no replies
+    await b.reportPartnerPost(post.id, 'spam');
+    await b.signOut();
+
+    await b.signIn({ email: 'a@b.co', password: 'password123' });
+    expect((await b.listPartnerReplies()).map((r) => [r.author, r.text])).toEqual([['יוסי', 'גם אני! וואטסאפ']]);
+    for (let i = 1; i < 5; i++) await b.createPartnerPost({ ...ad, text: `${ad.text} ${i}` });
+    expect(await errCode(b.createPartnerPost(ad))).toBe('too_many_posts');
+    await b.deletePartnerPost(post.id);
+    expect(await b.listPartnerReplies()).toEqual([]);
+  });
+});

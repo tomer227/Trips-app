@@ -3,6 +3,7 @@ import { exportBackup, importBackup } from '../journal';
 import PageHeader from '../components/PageHeader';
 
 const links = [
+  { href: '#/partners', icon: '🤝', title: 'מחפשים שותף', desc: 'שותפים לטרק, לג׳יפ, לחדר או לחלק מהמסלול' },
   { href: '#/safety', icon: '🛟', title: 'רשת ביטחון', desc: '"אני בסדר" להורים, יציאה לטרק וכרטיס חירום' },
   { href: '#/money', icon: '⏳', title: 'כמה זמן הכסף יחזיק?', desc: 'תחזית לפי ההוצאות שלכם, ואיפה הכסף מחזיק הכי הרבה' },
   { href: '#/shabbat', icon: '🕯️', title: 'שבת וחגים בדרך', desc: 'זמני כניסת שבת לפי המקום והחגים הקרובים בשביל' },
