@@ -420,7 +420,7 @@ function Expenses({ journal, setJournal, defaultCountry, plan }: SectionProps & 
                     <strong>{e.note || categories[e.category].label}</strong>
                     <span className="muted small">
                       {formatDate(e.date)} · {c?.flag} {c?.name}
-                      {e.split && ` · שילם/ה: ${personName(e.paidBy ?? ME)}, מתחלקים ${e.split.length}`}
+                      {e.split && ` · שילם/ה: ${personName(e.paidBy ?? ME)} · על: ${e.split.map(personName).join(', ')}`}
                     </span>
                   </span>
                   <span className="expense-amount">
