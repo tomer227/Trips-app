@@ -6,7 +6,7 @@ const ok = (body: unknown) => new Response(JSON.stringify(body), { status: 200 }
 
 function setup(response: () => Response | Promise<Response> = () => ok({ places: [] })) {
   const fetchFn = vi.fn(async () => response());
-  const deps: ProxyDeps = { apiKey: KEY, fetchFn: fetchFn as unknown as typeof fetch, cache: new TtlCache(), limiter: new RateLimiter(1000), now: () => 1_000_000 };
+  const deps: ProxyDeps = { apiKey: KEY, fetchFn: fetchFn as unknown as typeof fetch, cache: new TtlCache(), limiter: new RateLimiter(1000), globalLimiter: new RateLimiter(100_000), now: () => 1_000_000 };
   const call = (req: Partial<ProxyRequest> & { action: string }) => handlePlacesRequest({ method: 'POST', query: {}, body: undefined, ...req }, deps);
   return { fetchFn, deps, call };
 }
@@ -55,6 +55,17 @@ describe('places proxy – security', () => {
     const statuses = [];
     for (let i = 0; i < 3; i++) statuses.push((await handlePlacesRequest(req, { ...deps, limiter, cache: new TtlCache() })).status);
     expect(statuses).toEqual([200, 200, 429]);
+  });
+
+  it('caps all callers together, so faking a new IP on every request does not help', async () => {
+    const { deps } = setup();
+    const globalLimiter = new RateLimiter(3, 60_000);
+    const statuses = [];
+    for (let i = 0; i < 4; i++) {
+      const req: ProxyRequest = { action: 'nearby', method: 'POST', query: {}, body: nearbyBody, ip: `10.0.0.${i}` };
+      statuses.push((await handlePlacesRequest(req, { ...deps, globalLimiter, cache: new TtlCache() })).status);
+    }
+    expect(statuses).toEqual([200, 200, 200, 429]);
   });
 });
 

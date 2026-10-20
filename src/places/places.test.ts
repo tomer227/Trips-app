@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PlacesError, createPlacesApi, newSessionToken } from './api';
 import { getGoogleCategory, googleCategories, pinCategoryForTypes } from './categories';
-import { applyFilters, dedupePlaces, distanceMeters, googleMapsUrl, googleToPlace, mapGoogleResults, mergeDetails, priceSymbols, sortPlaces, type GooglePlaceRaw } from './mapping';
+import { applyFilters, dedupePlaces, distanceMeters, googleMapsUrl, googleToPlace, mapGoogleResults, mergeDetails, priceSymbols, sortPlaces, webUrl, type GooglePlaceRaw } from './mapping';
 import { debounce, runSearch } from './search';
 import { places as curated } from '../data/places';
 
@@ -285,5 +285,15 @@ describe('debounce', () => {
     d.cancel();
     vi.advanceTimersByTime(1000);
     expect(fn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('webUrl', () => {
+  it('keeps http(s) links and drops anything that could run code', () => {
+    expect(webUrl('https://example.com/a')).toBe('https://example.com/a');
+    expect(webUrl('javascript:alert(1)')).toBeUndefined();
+    expect(webUrl('data:text/html,<b>x</b>')).toBeUndefined();
+    expect(webUrl('not a url')).toBeUndefined();
+    expect(webUrl(42)).toBeUndefined();
   });
 });

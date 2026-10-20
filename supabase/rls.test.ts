@@ -178,13 +178,15 @@ describe('reports and moderation', () => {
 
 describe('who else is there', () => {
   const trip = (...w: [string, string, string][]) => JSON.stringify(w.map(([country_id, from_date, to_date]) => ({ country_id, from_date, to_date })));
+  // Relative dates: set_my_trip only accepts trips up to two years ahead.
+  const day = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
   type Row = { display_name: string; country_id: string };
 
   it('shows overlapping travellers only to those who share, and hides the raw table', async () => {
-    await as(A, 'select public.set_my_trip($1::jsonb)', [trip(['peru', '2099-01-01', '2099-01-31'])]);
+    await as(A, 'select public.set_my_trip($1::jsonb)', [trip(['peru', day(30), day(60)])]);
     expect(await as(C, 'select * from public.who_else_there()')).toEqual([]); // C shares nothing
 
-    await as(C, 'select public.set_my_trip($1::jsonb)', [trip(['peru', '2099-01-20', '2099-02-10'], ['chile', '2099-01-01', '2099-01-31'])]);
+    await as(C, 'select public.set_my_trip($1::jsonb)', [trip(['peru', day(49), day(70)], ['chile', day(30), day(60)])]);
     const seen = await as<Row>(C, 'select display_name, country_id from public.who_else_there()');
     expect(seen).toEqual([{ display_name: 'דנה הטיילת', country_id: 'peru' }]);
     expect((await as<Row>(A, 'select display_name, country_id from public.who_else_there()')).map((r) => r.country_id)).toEqual(['peru']);
@@ -195,10 +197,10 @@ describe('who else is there', () => {
   });
 
   it('rejects bad trips, ignores past ones and stops sharing on an empty trip', async () => {
-    await expect(as(A, 'select public.set_my_trip($1::jsonb)', [trip(['peru', '2099-02-01', '2099-01-01'])])).rejects.toThrow(/check constraint/);
-    await expect(as(A, 'select public.set_my_trip($1::jsonb)', [trip(['<script>', '2099-01-01', '2099-01-02'])])).rejects.toThrow(/check constraint/);
+    await expect(as(A, 'select public.set_my_trip($1::jsonb)', [trip(['peru', day(61), day(30)])])).rejects.toThrow(/check constraint/);
+    await expect(as(A, 'select public.set_my_trip($1::jsonb)', [trip(['<script>', day(30), day(31)])])).rejects.toThrow(/check constraint/);
     await as(D, 'select public.set_my_trip($1::jsonb)', [trip(['peru', '2000-01-01', '2000-01-31'])]);
-    await as(D, 'select public.set_my_trip($1::jsonb)', [trip(['peru', '2099-01-01', '2099-01-31'], ['peru', '2000-01-01', '2000-01-31'])]);
+    await as(D, 'select public.set_my_trip($1::jsonb)', [trip(['peru', day(30), day(60)], ['peru', '2000-01-01', '2000-01-31'])]);
     expect((await as<Row>(C, 'select display_name, country_id from public.who_else_there()')).length).toBe(2); // A and D, not D's past trip
 
     await as(A, 'select public.set_my_trip($1::jsonb)', ['[]']);
@@ -281,6 +283,61 @@ describe('partner board', () => {
     expect(await as(B, 'select id from public.partner_posts_public where id = $1', [id])).toEqual([]);
     expect(await as(A, 'select * from public.partner_reports')).toEqual([]); // no select policy
     await expect(as(D, "update public.partner_posts set hidden = false where id = $1", [id])).rejects.toThrow(/permission denied/);
+  });
+});
+
+describe('hardening (0004)', () => {
+  const E = '55555555-5555-4555-8555-555555555555';
+  const F = '66666666-6666-4666-8666-666666666666';
+  const day = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
+  const trip = (...w: [string, string, string][]) => JSON.stringify(w.map(([country_id, from_date, to_date]) => ({ country_id, from_date, to_date })));
+
+  beforeAll(async () => {
+    await addUser(E, 'אלה');
+    await addUser(F, 'פלג');
+  });
+
+  it('ignores a created_at sent by the client, so daily limits cannot be dodged', async () => {
+    const [{ id }] = await as<{ id: string }>(E, "insert into public.reviews (place_id, stars, visited, created_at) values ('hard-1', 5, '2026-01', '2000-01-01') returning id");
+    const [{ recent }] = (await db.query<{ recent: boolean }>("select created_at > now() - interval '1 minute' as recent from public.reviews where id = $1", [id])).rows;
+    expect(recent).toBe(true);
+    const [{ id: postId }] = await as<{ id: string }>(E, "insert into public.partner_posts (country_id, from_date, to_date, kind, body, created_at) values ('peru', $1, $2, 'trek', 'מחפשת שותפה לטרק', '2000-01-01') returning id", [day(10), day(20)]);
+    const posts = await db.query<{ recent: boolean }>("select created_at > now() - interval '1 minute' as recent from public.partner_posts where id = $1", [postId]);
+    expect(posts.rows[0].recent).toBe(true);
+  });
+
+  it('allows at most 20 reports a day per user', async () => {
+    for (let n = 0; n < 21; n++) await as(F, "insert into public.reviews (place_id, stars, visited) values ($1, 4, '2026-01')", [`hard-r${n}`]);
+    const ids = (await db.query<{ id: string }>('select id from public.reviews where user_id = $1 order by place_id', [F])).rows.map((r) => r.id);
+    for (const id of ids.slice(0, 20)) await as(E, 'insert into public.reports (review_id) values ($1)', [id]);
+    await expect(as(E, 'insert into public.reports (review_id) values ($1)', [ids[20]])).rejects.toThrow(/report rate limit/);
+  });
+
+  it('limits shared trips so they cannot be used to list everyone', async () => {
+    const many = Array.from({ length: 16 }, (_, n) => ['peru', day(n * 2 + 1), day(n * 2 + 2)] as [string, string, string]);
+    await expect(as(E, 'select public.set_my_trip($1::jsonb)', [trip(...many)])).rejects.toThrow(/too many trip stops/);
+    await expect(as(E, 'select public.set_my_trip($1::jsonb)', [trip(['peru', day(1), day(200)], ['chile', day(1), day(250)])])).rejects.toThrow(/trip too long/);
+    await expect(as(E, 'select public.set_my_trip($1::jsonb)', [trip(['peru', day(800), day(810)])])).rejects.toThrow(/too far ahead/);
+
+    // Saving the same trip again (the app does it on every visit) is not a change.
+    for (let n = 0; n < 35; n++) await as(E, 'select public.set_my_trip($1::jsonb)', [trip(['peru', day(5), day(25)])]);
+    // Real changes are capped at 30 a day (one was used above).
+    let failed = 0;
+    for (let n = 0; n < 31; n++) {
+      try {
+        await as(E, 'select public.set_my_trip($1::jsonb)', [trip(['peru', day(5), day(26 + n)])]);
+      } catch (e) {
+        expect(String(e)).toMatch(/trip change rate limit/);
+        failed++;
+      }
+    }
+    expect(failed).toBe(2);
+    await expect(as(E, 'select * from public.trip_changes')).rejects.toThrow(/permission denied/);
+  });
+
+  it('does not expose trigger functions through the API', async () => {
+    await expect(as(E, 'select public.reviews_rate_limit()')).rejects.toThrow(/permission denied/);
+    await expect(as(null, 'select public.force_created_now()')).rejects.toThrow(/permission denied/);
   });
 });
 

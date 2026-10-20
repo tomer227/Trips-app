@@ -197,14 +197,18 @@ export interface CloudBackend {
   reportPartnerPost(id: string, reason: string): Promise<void>;
 }
 
-export const MAX_TRIP_WINDOWS = 30;
+/** The database (0004_hardening.sql) accepts at most 15 current stops. */
+export const MAX_TRIP_WINDOWS = 15;
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
-/** Keeps only well-formed windows (the database applies the same rules), at most MAX_TRIP_WINDOWS. */
-export function cleanTripWindows(windows: TripWindow[]): TripWindow[] {
+/**
+ * Keeps only well-formed stops that have not ended yet (the database applies the same rules),
+ * at most MAX_TRIP_WINDOWS.
+ */
+export function cleanTripWindows(windows: TripWindow[], today = new Date().toISOString().slice(0, 10)): TripWindow[] {
   return windows
-    .filter((w) => /^[a-z-]{2,40}$/.test(w.countryId) && ISO_DAY.test(w.from) && ISO_DAY.test(w.to) && w.from <= w.to)
+    .filter((w) => /^[a-z-]{2,40}$/.test(w.countryId) && ISO_DAY.test(w.from) && ISO_DAY.test(w.to) && w.from <= w.to && w.to >= today)
     .slice(0, MAX_TRIP_WINDOWS);
 }
 

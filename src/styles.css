@@ -7,7 +7,7 @@
   --text: #18232a;
   --muted: #5d6a70;
   --border: #ebe4d8;
-  --primary: #0d7a6f;
+  --primary: #0b7267;
   --primary-2: #14b8a6;
   --primary-soft: #dcf3ee;
   --primary-dark: #08564e;
@@ -1898,7 +1898,7 @@ textarea {
 }
 
 .status-live {
-  color: #16a34a;
+  color: #15803d;
 }
 
 .status-partial {
@@ -2306,4 +2306,13 @@ textarea {
   padding-inline-start: 18px;
   display: grid;
   gap: 6px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .status-live {
+    color: #4ade80;
+  }
+  .status-partial {
+    color: #fbbf24;
+  }
 }

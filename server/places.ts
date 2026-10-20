@@ -31,6 +31,8 @@ export interface ProxyDeps {
   now?: () => number;
   cache?: TtlCache;
   limiter?: RateLimiter;
+  /** Cap for all callers together, so spoofed IP headers cannot get around the per-IP limit. */
+  globalLimiter?: RateLimiter;
   /** Comma-separated origins allowed to call the API (empty = any) */
   allowedOrigins?: string;
   log?: (message: string) => void;
@@ -122,6 +124,8 @@ export class RateLimiter {
 
 const sharedCache = new TtlCache();
 const sharedLimiter = new RateLimiter();
+// Per server instance; with maxInstances 3 this caps Google calls at roughly 1,800 a minute.
+const sharedGlobalLimiter = new RateLimiter(600, 60_000);
 
 const fail = (status: number, error: string, extra: Record<string, unknown> = {}): ProxyResponse => ({ status, body: { error, ...extra } });
 
@@ -155,10 +159,11 @@ export async function handlePlacesRequest(req: ProxyRequest, deps: ProxyDeps): P
   const fetchFn = deps.fetchFn ?? fetch;
   const cache = deps.cache ?? sharedCache;
   const limiter = deps.limiter ?? sharedLimiter;
+  const globalLimiter = deps.globalLimiter ?? sharedGlobalLimiter;
 
   const allowed = (deps.allowedOrigins ?? '').split(',').map((o) => o.trim()).filter(Boolean);
   if (allowed.length && req.origin && !allowed.includes(req.origin)) return fail(403, 'forbidden_origin');
-  if (!limiter.allow(req.ip ?? 'unknown', now)) return fail(429, 'rate_limited');
+  if (!limiter.allow(req.ip ?? 'unknown', now) || !globalLimiter.allow('all', now)) return fail(429, 'rate_limited');
   if (!deps.apiKey) return fail(503, 'not_configured');
 
   const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;

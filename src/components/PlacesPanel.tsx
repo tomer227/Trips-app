@@ -85,10 +85,13 @@ export default function PlacesPanel(p: Props) {
               onChange={(e) => ac.setInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Escape' && ac.dismiss()}
               aria-label="חיפוש מקומות"
+              role="combobox"
+              aria-autocomplete="list"
+              aria-controls="place-search-suggestions"
               aria-expanded={ac.suggestions.length > 0}
             />
             {ac.suggestions.length > 0 && (
-              <ul className="suggestions" role="listbox">
+              <ul className="suggestions" id="place-search-suggestions" role="listbox">
                 {ac.suggestions.map((s) => (
                   <li key={s.placeId} role="option" aria-selected="false">
                     <button
