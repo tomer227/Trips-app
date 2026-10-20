@@ -114,7 +114,7 @@ export default function MapPage({ initialPlaceId, plan }: Props) {
         );
   // Upcoming meetups (signed-in users) are pins of their own; they open a meetup card, not a place card.
   const { view: meetupView, reload: reloadMeetups } = useMeetups();
-  const meetups = meetupView.state === 'ok' ? meetupView.meetups : [];
+  const meetups = useMemo(() => (meetupView.state === 'ok' ? meetupView.meetups : []), [meetupView]);
   const meetupPins = useMemo(() => meetupPlaces(meetups), [meetups]);
   const visibleMeetups = source === 'google' || hidden.includes('gathering') ? [] : meetupPins.filter((p) => regionOf(p) === region);
   // Deep link to a meetup (#/map/meetup-<id>), once the meetups have loaded.
