@@ -444,6 +444,38 @@ describe('meetups (0006)', () => {
 });
 
 describe('account deletion', () => {
+  it('removes a user who has data in every table, without touching anyone else', async () => {
+    const Z = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    await addUser(Z, 'נמחק');
+    await db.query('insert into public.moderators (user_id) values ($1)', [Z]);
+    const day = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
+    const soon = new Date(Date.now() + 5 * 3_600_000).toISOString();
+
+    await as(Z, "insert into public.user_data (user_id, data) values ($1, '{}'::jsonb)", [Z]);
+    const [{ id: reviewId }] = await insertReview(Z, review('kasol')) as { id: string }[];
+    await as(Z, 'select public.set_my_trip($1::jsonb)', [JSON.stringify([{ country_id: 'peru', from_date: day(10), to_date: day(20) }])]);
+    const [{ id: postId }] = await as<{ id: string }>(Z, "insert into public.partner_posts (country_id, from_date, to_date, kind, body) values ('peru', $1, $2, 'trek', 'מחפש שותפים לטרק') returning id", [day(10), day(20)]);
+    const [{ id: meetupId }] = await as<{ id: string }>(Z, "insert into public.meetups (country_id, title, place_label, lat, lng, starts_at) values ('peru', 'ארוחת שישי', 'כיכר', 1, 1, $1) returning id", [soon]);
+    // Others interact with Z's content, and Z with theirs.
+    const [{ id: othersPost }] = await as<{ id: string }>(A, "insert into public.partner_posts (country_id, from_date, to_date, kind, body) values ('chile', $1, $2, 'trek', 'מחפשת שותפה לטרק') returning id", [day(10), day(20)]);
+    await as(Z, "insert into public.partner_replies (post_id, body) values ($1, 'אני בפנים!')", [othersPost]);
+    await as(Z, "insert into public.partner_reports (post_id, reason) values ($1, 'spam')", [othersPost]);
+    await as(A, "insert into public.partner_replies (post_id, body) values ($1, 'גם אני')", [postId]);
+    await as(A, 'insert into public.meetup_going (meetup_id) values ($1)', [meetupId]);
+    await as(Z, 'insert into public.meetup_going (meetup_id) values ($1)', [meetupId]);
+    await as(A, "insert into public.reports (review_id, reason) values ($1, 'spam')", [reviewId]);
+
+    await as(Z, 'select public.delete_my_account()');
+
+    for (const table of ['user_data', 'reviews', 'trip_windows', 'partner_posts', 'meetups', 'meetup_going', 'partner_replies', 'partner_reports', 'trip_changes']) {
+      const col = table === 'partner_reports' ? 'reporter_id' : 'user_id';
+      expect((await db.query(`select 1 from public.${table} where ${col} = $1`, [Z])).rows, table).toEqual([]);
+    }
+    expect((await db.query('select 1 from public.moderators where user_id = $1', [Z])).rows).toEqual([]);
+    expect((await db.query('select 1 from public.profiles where id = $1', [Z])).rows).toEqual([]);
+    expect((await db.query('select 1 from public.partner_posts where id = $1', [othersPost])).rows).toHaveLength(1);
+  });
+
   it('lets a user delete their account and everything attached, and nobody else', async () => {
     await expect(as(null, 'select public.delete_my_account()')).rejects.toThrow(/permission denied/);
 
