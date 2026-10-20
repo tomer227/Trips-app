@@ -176,6 +176,8 @@ describe('memory backend: partner board', () => {
     expect((await b.moderationQueue()).map((i) => [i.kind, i.text, i.author, i.reports, i.reasons])).toEqual([['review', 'ספאם', 'דנה', 1, ['פרסומת']]]);
     await b.moderate('review', r.id, 'restore');
     expect(await b.moderationQueue()).toEqual([]);
+    await b.reportReview(r.id, 'שוב'); // the same reporter cannot bring it back to the queue
+    expect(await b.moderationQueue()).toEqual([]);
     await b.moderate('review', r.id, 'delete');
     expect(await b.listReviews('mod-place')).toEqual([]);
   });
@@ -187,6 +189,8 @@ describe('memory backend: partner board', () => {
     expect(await code(b.listMeetups())).toBe('not_signed_in');
     await b.signUp({ email: 'a@b.co', password: 'password123', displayName: 'דנה' });
     const created = await b.createMeetup(m);
+    await b.setGoing(created.id, true); // organisers are not counted as coming
+    expect((await b.listMeetups()).find((x) => x.id === created.id)).toMatchObject({ going: 0, iAmGoing: false });
     expect(await code(b.createMeetup({ ...m, startsAt: at(-5) }))).toBe('invalid_input');
     await b.createMeetup({ ...m, title: 'טרק ליום' });
     await b.createMeetup({ ...m, title: 'מסיבה' });

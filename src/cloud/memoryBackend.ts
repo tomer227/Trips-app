@@ -36,16 +36,16 @@ interface MemState {
   sessionUserId: string | null;
   userData: Record<string, SyncBlob>;
   reviews: (CloudReview & { hidden?: boolean })[];
-  reports: { reviewId: string; reporterId: string; reason: string }[];
+  reports: { reviewId: string; reporterId: string; reason: string; cleared?: boolean }[];
   trips: Record<string, TripWindow[]>;
   partnerPosts: (PartnerPost & { hidden?: boolean })[];
   partnerReplies: PartnerReply[];
-  partnerReports: { postId: string; reporterId: string; reason?: string }[];
+  partnerReports: { postId: string; reporterId: string; reason?: string; cleared?: boolean }[];
   /** User ids that may moderate (tests and VITE_CLOUD=memory set it directly). */
   moderators: string[];
   meetups: (Omit<Meetup, 'going' | 'iAmGoing' | 'author'> & { hidden?: boolean })[];
   going: { meetupId: string; userId: string }[];
-  meetupReports: { meetupId: string; reporterId: string; reason: string }[];
+  meetupReports: { meetupId: string; reporterId: string; reason: string; cleared?: boolean }[];
 }
 
 const KEY = 'memory-cloud';
@@ -228,7 +228,7 @@ export function createMemoryBackend(storage: Pick<Storage, 'getItem' | 'setItem'
       const u = requireUser();
       if (state.reports.some((r) => r.reviewId === id && r.reporterId === u.id)) return;
       state.reports.push({ reviewId: id, reporterId: u.id, reason });
-      const reporters = new Set(state.reports.filter((r) => r.reviewId === id).map((r) => r.reporterId));
+      const reporters = new Set(state.reports.filter((r) => r.reviewId === id && !r.cleared).map((r) => r.reporterId));
       if (reporters.size >= 3) {
         const review = state.reviews.find((r) => r.id === id);
         if (review) review.hidden = true;
@@ -315,7 +315,7 @@ export function createMemoryBackend(storage: Pick<Storage, 'getItem' | 'setItem'
       const u = requireUser();
       if (state.partnerReports.some((r) => r.postId === id && r.reporterId === u.id)) return;
       state.partnerReports.push({ postId: id, reporterId: u.id, reason });
-      if (new Set(state.partnerReports.filter((r) => r.postId === id).map((r) => r.reporterId)).size >= 3) {
+      if (new Set(state.partnerReports.filter((r) => r.postId === id && !r.cleared).map((r) => r.reporterId)).size >= 3) {
         const post = state.partnerPosts.find((p) => p.id === id);
         if (post) post.hidden = true;
       }
@@ -341,7 +341,7 @@ export function createMemoryBackend(storage: Pick<Storage, 'getItem' | 'setItem'
       const u = requireUser();
       const problem = validateMeetup(input);
       if (problem) throw new CloudError('invalid_input', problem, problem);
-      if (state.meetups.filter((m) => m.userId === u.id && Date.parse(m.startsAt) > Date.now()).length >= MAX_UPCOMING_MEETUPS) throw new CloudError('too_many_meetups');
+      if (state.meetups.filter((m) => m.userId === u.id && Date.parse(m.startsAt) > Date.now() - 12 * 3_600_000).length >= MAX_UPCOMING_MEETUPS) throw new CloudError('too_many_meetups');
       const meetup = {
         ...input,
         title: input.title.trim(),
@@ -368,7 +368,7 @@ export function createMemoryBackend(storage: Pick<Storage, 'getItem' | 'setItem'
     async setGoing(id, going) {
       const u = requireUser();
       state.going = state.going.filter((g) => !(g.meetupId === id && g.userId === u.id));
-      const visible = state.meetups.some((m) => m.id === id && !m.hidden);
+      const visible = state.meetups.some((m) => m.id === id && !m.hidden && m.userId !== u.id);
       if (going && visible) state.going.push({ meetupId: id, userId: u.id });
       save();
     },
@@ -377,7 +377,7 @@ export function createMemoryBackend(storage: Pick<Storage, 'getItem' | 'setItem'
       const u = requireUser();
       if (state.meetupReports.some((r) => r.meetupId === id && r.reporterId === u.id)) return;
       state.meetupReports.push({ meetupId: id, reporterId: u.id, reason });
-      if (new Set(state.meetupReports.filter((r) => r.meetupId === id).map((r) => r.reporterId)).size >= 3) {
+      if (new Set(state.meetupReports.filter((r) => r.meetupId === id && !r.cleared).map((r) => r.reporterId)).size >= 3) {
         const m = state.meetups.find((x) => x.id === id);
         if (m) m.hidden = true;
       }
@@ -396,15 +396,15 @@ export function createMemoryBackend(storage: Pick<Storage, 'getItem' | 'setItem'
       const name = (id: string) => state.users.find((x) => x.id === id)?.displayName ?? 'מטייל';
       const items: ModItem[] = [
         ...state.reviews.map((r) => {
-          const reps = state.reports.filter((x) => x.reviewId === r.id);
+          const reps = state.reports.filter((x) => x.reviewId === r.id && !x.cleared);
           return { kind: 'review' as const, id: r.id, text: r.text, author: name(r.userId), subject: r.placeId, hidden: !!r.hidden, reports: reps.length, reasons: reps.map((x) => x.reason).filter(Boolean), createdAt: r.createdAt };
         }),
         ...state.partnerPosts.map((p) => {
-          const reps = state.partnerReports.filter((x) => x.postId === p.id);
+          const reps = state.partnerReports.filter((x) => x.postId === p.id && !x.cleared);
           return { kind: 'post' as const, id: p.id, text: p.text, author: name(p.userId), subject: p.countryId, hidden: !!p.hidden, reports: reps.length, reasons: reps.map((x) => x.reason ?? '').filter(Boolean), createdAt: p.createdAt };
         }),
         ...state.meetups.map((m) => {
-          const reps = state.meetupReports.filter((x) => x.meetupId === m.id);
+          const reps = state.meetupReports.filter((x) => x.meetupId === m.id && !x.cleared);
           return { kind: 'meetup' as const, id: m.id, text: `${m.title}\n${m.placeLabel}${m.text ? `\n${m.text}` : ''}`, author: name(m.userId), subject: m.countryId, hidden: !!m.hidden, reports: reps.length, reasons: reps.map((x) => x.reason).filter(Boolean), createdAt: m.createdAt };
         }),
       ];
@@ -424,9 +424,10 @@ export function createMemoryBackend(storage: Pick<Storage, 'getItem' | 'setItem'
       } else {
         item.hidden = action === 'hide';
         if (action === 'restore') {
-          if (kind === 'review') state.reports = state.reports.filter((x) => x.reviewId !== id);
-          else if (kind === 'post') state.partnerReports = state.partnerReports.filter((x) => x.postId !== id);
-          else state.meetupReports = state.meetupReports.filter((x) => x.meetupId !== id);
+          // Reports are kept (cleared), so the same people cannot report it again, as in the database.
+          if (kind === 'review') for (const x of state.reports) if (x.reviewId === id) x.cleared = true;
+          if (kind === 'post') for (const x of state.partnerReports) if (x.postId === id) x.cleared = true;
+          if (kind === 'meetup') for (const x of state.meetupReports) if (x.meetupId === id) x.cleared = true;
         }
       }
       save();

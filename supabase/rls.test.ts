@@ -443,6 +443,76 @@ describe('meetups (0006)', () => {
   });
 });
 
+describe('review fixes (0007)', () => {
+  const [P, Q, R, S] = ['b', 'c', 'd', 'e'].map((c) => `${c.repeat(8)}-${c.repeat(4)}-4${c.repeat(3)}-8${c.repeat(3)}-${c.repeat(12)}`);
+  const inHours = (h: number) => new Date(Date.now() + h * 3_600_000).toISOString();
+  const day = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
+  const meetup = (uid: string, starts = inHours(30)) =>
+    as<{ id: string }>(uid, "insert into public.meetups (country_id, title, place_label, lat, lng, starts_at) values ('peru', 'ארוחת שישי', 'כיכר', 1, 1, $1) returning id", [starts]);
+
+  beforeAll(async () => {
+    for (const [id, name] of [[P, 'פז'], [Q, 'קרן'], [R, 'רון'], [S, 'שי']]) await addUser(id, name);
+    await db.query('insert into public.moderators (user_id) values ($1)', [S]);
+  });
+
+  it('counts daily limits from a log, so deleting and creating again does not help', async () => {
+    for (let i = 0; i < 10; i++) {
+      const [{ id }] = await meetup(P);
+      await as(P, 'delete from public.meetups where id = $1', [id]);
+    }
+    await expect(meetup(P)).rejects.toThrow(/meetup rate limit/);
+
+    for (let i = 0; i < 10; i++) {
+      const [{ id }] = await as<{ id: string }>(P, "insert into public.partner_posts (country_id, from_date, to_date, kind, body) values ('peru', $1, $2, 'trek', 'מחפש שותפים לטרק') returning id", [day(5), day(9)]);
+      await as(P, 'delete from public.partner_posts where id = $1', [id]);
+    }
+    await expect(as(P, "insert into public.partner_posts (country_id, from_date, to_date, kind, body) values ('peru', $1, $2, 'trek', 'מחפש שותפים לטרק')", [day(5), day(9)])).rejects.toThrow(/partner post rate limit/);
+
+    for (let i = 0; i < 30; i++) {
+      const [{ id }] = await insertReview(P, review(`place-${i}`)) as { id: string }[];
+      await as(P, 'delete from public.reviews where id = $1', [id]);
+    }
+    await expect(insertReview(P, review('one-more'))).rejects.toThrow(/review rate limit/);
+    await expect(as(P, 'select * from public.activity_log')).rejects.toThrow(/permission denied/);
+    await expect(as(P, "select public.log_activity($1, 'meetup', 0, 'x')", [P])).rejects.toThrow(/permission denied/);
+  });
+
+  it('counts meetups that already started toward the 3 on the board', async () => {
+    for (let i = 0; i < 3; i++) await meetup(Q, inHours(-0.5));
+    await expect(meetup(Q)).rejects.toThrow(/meetup limit reached/);
+  });
+
+  it('does not let an organiser count themselves as coming, or count hidden meetups', async () => {
+    const [{ id }] = await meetup(R);
+    await expect(as(R, 'insert into public.meetup_going (meetup_id) values ($1)', [id])).rejects.toThrow(/row-level security/);
+    await as(Q, 'insert into public.meetup_going (meetup_id) values ($1)', [id]);
+    expect(Number((await as<{ n: string }>(P, 'select public.meetup_going_count($1) as n', [id]))[0].n)).toBe(1);
+    await db.query('update public.meetups set hidden = true where id = $1', [id]);
+    expect(Number((await as<{ n: string }>(P, 'select public.meetup_going_count($1) as n', [id]))[0].n)).toBe(0);
+  });
+
+  it('keeps reports after a restore, so the same accounts cannot hide it again', async () => {
+    const [{ id }] = await meetup(S);
+    for (const uid of [P, Q, R]) await as(uid, "insert into public.meetup_reports (meetup_id, reason) values ($1, 'spam')", [id]);
+    expect((await db.query<{ hidden: boolean }>('select hidden from public.meetups where id = $1', [id])).rows[0].hidden).toBe(true);
+    await as(S, "select public.mod_act('meetup', $1, 'restore')", [id]);
+    expect((await as<{ id: string }>(S, 'select id from public.mod_queue() where id = $1', [id]))).toEqual([]);
+    for (const uid of [P, Q, R]) await expect(as(uid, "insert into public.meetup_reports (meetup_id, reason) values ($1, 'again')", [id])).rejects.toThrow(/duplicate key/);
+    expect((await db.query<{ hidden: boolean }>('select hidden from public.meetups where id = $1', [id])).rows[0].hidden).toBe(false);
+    // A new report shows up in the queue on its own.
+    await as(A, "insert into public.meetup_reports (meetup_id, reason) values ($1, 'new')", [id]);
+    const [row] = await as<{ reports: string; reasons: string[] }>(S, 'select reports, reasons from public.mod_queue() where id = $1', [id]);
+    expect(Number(row.reports)).toBe(1);
+    expect(row.reasons).toEqual(['new']);
+  });
+
+  it('does not let an author move a review to another place', async () => {
+    const [{ id }] = await insertReview(Q, review('kasol')) as { id: string }[];
+    await as(Q, "update public.reviews set place_id = 'elsewhere', body = 'עדכון' where id = $1", [id]);
+    expect((await db.query<{ place_id: string; body: string }>('select place_id, body from public.reviews where id = $1', [id])).rows[0]).toEqual({ place_id: 'kasol', body: 'עדכון' });
+  });
+});
+
 describe('account deletion', () => {
   it('removes a user who has data in every table, without touching anyone else', async () => {
     const Z = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -462,12 +532,11 @@ describe('account deletion', () => {
     await as(Z, "insert into public.partner_reports (post_id, reason) values ($1, 'spam')", [othersPost]);
     await as(A, "insert into public.partner_replies (post_id, body) values ($1, 'גם אני')", [postId]);
     await as(A, 'insert into public.meetup_going (meetup_id) values ($1)', [meetupId]);
-    await as(Z, 'insert into public.meetup_going (meetup_id) values ($1)', [meetupId]);
     await as(A, "insert into public.reports (review_id, reason) values ($1, 'spam')", [reviewId]);
 
     await as(Z, 'select public.delete_my_account()');
 
-    for (const table of ['user_data', 'reviews', 'trip_windows', 'partner_posts', 'meetups', 'meetup_going', 'partner_replies', 'partner_reports', 'trip_changes']) {
+    for (const table of ['user_data', 'reviews', 'trip_windows', 'partner_posts', 'meetups', 'meetup_going', 'partner_replies', 'partner_reports', 'trip_changes', 'activity_log']) {
       const col = table === 'partner_reports' ? 'reporter_id' : 'user_id';
       expect((await db.query(`select 1 from public.${table} where ${col} = $1`, [Z])).rows, table).toEqual([]);
     }

@@ -12,7 +12,8 @@
 2. לחץ **+ Create credentials** ואז **API key**. יופיע מפתח חדש. **אל תשלח אותו לאף אחד, גם לא אליי.** תשאיר את החלון פתוח.
 3. לחץ על שם המפתח החדש. תחת **API restrictions** בחר **Restrict key**, סמן רק **Places API (New)** ולחץ **Save**.
 4. באותו עמוד, ליד המפתח **הישן**, לחץ על שלוש הנקודות ואז **Delete**.
-5. מומלץ: [Billing → Budgets & alerts](https://console.cloud.google.com/billing/budgets) → **Create budget**, למשל 20$ בחודש, עם התראה למייל.
+5. **תקרה יומית (חשוב, זה מה שמגן עליך מחשבון גבוה):** פתח את [Places API (New) → Quotas](https://console.cloud.google.com/apis/api/places.googleapis.com/quotas). בכל שורה שכתוב בה **per day**, לחץ על העיפרון, כתוב `3000` ולחץ **Submit**. אם מישהו ינסה להפעיל את החיפוש בלי סוף, Google פשוט יעצור אחרי 3000 בקשות ביום.
+6. מומלץ: [Billing → Budgets & alerts](https://console.cloud.google.com/billing/budgets) → **Create budget**, למשל 20$ בחודש, עם התראה למייל. (התראה רק מודיעה, היא לא עוצרת. את העצירה עושה התקרה מסעיף 5.)
 
 ## שלב 2: Supabase, בשביל חשבונות משתמשים (בערך 5 דקות, אפשר לדלג)
 בלי השלב הזה האתר עובד, רק בלי הרשמה, סנכרון, ביקורות משותפות ו"מי עוד שם".

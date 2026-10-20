@@ -33,6 +33,7 @@ export interface ProxyDeps {
   limiter?: RateLimiter;
   /** Cap for all callers together, so spoofed IP headers cannot get around the per-IP limit. */
   globalLimiter?: RateLimiter;
+  dailyLimiter?: RateLimiter;
   /** Comma-separated origins allowed to call the API (empty = any) */
   allowedOrigins?: string;
   log?: (message: string) => void;
@@ -113,7 +114,12 @@ export class RateLimiter {
   allow(key: string, now: number): boolean {
     const entry = this.hits.get(key);
     if (!entry || entry.resetAt <= now) {
-      if (this.hits.size > 5000) this.hits.clear();
+      if (this.hits.size >= 5000) {
+        // Drop only expired windows; clearing everything would let a flood of fake keys reset real ones.
+        for (const [k, e] of this.hits) if (e.resetAt <= now) this.hits.delete(k);
+        // Still full of live keys (a flood): don't track this one. The global caps still apply.
+        if (this.hits.size >= 5000) return true;
+      }
       this.hits.set(key, { count: 1, resetAt: now + this.windowMs });
       return true;
     }
@@ -124,8 +130,12 @@ export class RateLimiter {
 
 const sharedCache = new TtlCache();
 const sharedLimiter = new RateLimiter();
-// Per server instance; with maxInstances 3 this caps Google calls at roughly 1,800 a minute.
-const sharedGlobalLimiter = new RateLimiter(600, 60_000);
+// Per server instance (maxInstances 3), counting only real calls to Google. The per-IP limit relies
+// on X-Forwarded-For, which a client can fake, so these caps bound the cost: at most 120 calls a
+// minute and 2,500 a day per instance. The hard cap is the daily quota set in Google Cloud
+// (docs/GO_LIVE.md step 1).
+const sharedGlobalLimiter = new RateLimiter(120, 60_000);
+const sharedDailyLimiter = new RateLimiter(2500, 86_400_000);
 
 const fail = (status: number, error: string, extra: Record<string, unknown> = {}): ProxyResponse => ({ status, body: { error, ...extra } });
 
@@ -160,6 +170,7 @@ export async function handlePlacesRequest(req: ProxyRequest, deps: ProxyDeps): P
   const cache = deps.cache ?? sharedCache;
   const limiter = deps.limiter ?? sharedLimiter;
   const globalLimiter = deps.globalLimiter ?? sharedGlobalLimiter;
+  const dailyLimiter = deps.dailyLimiter ?? sharedDailyLimiter;
 
   const allowed = (deps.allowedOrigins ?? '').split(',').map((o) => o.trim()).filter(Boolean);
   if (allowed.length && req.origin && !allowed.includes(req.origin)) return fail(403, 'forbidden_origin');
@@ -172,7 +183,7 @@ export async function handlePlacesRequest(req: ProxyRequest, deps: ProxyDeps): P
   /** One place for all upstream calls, so the key and error handling live in one spot. */
   const upstream = async (path: string, init: { method: 'GET' | 'POST'; fieldMask?: string; body?: unknown }): Promise<ProxyResponse & { ok: boolean }> => {
     // Counted only for real calls to Google: cache hits and invalid requests never use it up.
-    if (!globalLimiter.allow('all', now)) return { ok: false, ...fail(429, 'rate_limited') };
+    if (!globalLimiter.allow('all', now) || !dailyLimiter.allow('all', now)) return { ok: false, ...fail(429, 'rate_limited') };
     try {
       const res = await fetchFn(`${BASE}${path}`, {
         method: init.method,

@@ -6,7 +6,7 @@ const ok = (body: unknown) => new Response(JSON.stringify(body), { status: 200 }
 
 function setup(response: () => Response | Promise<Response> = () => ok({ places: [] })) {
   const fetchFn = vi.fn(async () => response());
-  const deps: ProxyDeps = { apiKey: KEY, fetchFn: fetchFn as unknown as typeof fetch, cache: new TtlCache(), limiter: new RateLimiter(1000), globalLimiter: new RateLimiter(100_000), now: () => 1_000_000 };
+  const deps: ProxyDeps = { apiKey: KEY, fetchFn: fetchFn as unknown as typeof fetch, cache: new TtlCache(), limiter: new RateLimiter(1000), globalLimiter: new RateLimiter(100_000), dailyLimiter: new RateLimiter(100_000), now: () => 1_000_000 };
   const call = (req: Partial<ProxyRequest> & { action: string }) => handlePlacesRequest({ method: 'POST', query: {}, body: undefined, ...req }, deps);
   return { fetchFn, deps, call };
 }
@@ -66,6 +66,22 @@ describe('places proxy – security', () => {
       statuses.push((await handlePlacesRequest(req, { ...deps, globalLimiter, cache: new TtlCache() })).status);
     }
     expect(statuses).toEqual([200, 200, 200, 429]);
+  });
+
+  it('also caps calls per day, and a flood of fake IPs does not reset real callers', async () => {
+    const { deps } = setup();
+    const dailyLimiter = new RateLimiter(2, 86_400_000);
+    const statuses = [];
+    for (let i = 0; i < 3; i++) {
+      const req: ProxyRequest = { action: 'nearby', method: 'POST', query: {}, body: nearbyBody, ip: `10.9.0.${i}` };
+      statuses.push((await handlePlacesRequest(req, { ...deps, dailyLimiter, cache: new TtlCache() })).status);
+    }
+    expect(statuses).toEqual([200, 200, 429]);
+
+    const limiter = new RateLimiter(1, 60_000);
+    expect(limiter.allow('real', 0)).toBe(true);
+    for (let i = 0; i < 6000; i++) limiter.allow(`fake-${i}`, 1);
+    expect(limiter.allow('real', 2)).toBe(false);
   });
 
   it('does not use up the shared cap on cache hits or invalid requests', async () => {
